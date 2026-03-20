@@ -3,7 +3,6 @@ use std::fmt;
 use std::sync::{Arc, RwLock};
 
 use chrono::{DateTime, Utc};
-use log::debug;
 
 use crate::library::Library;
 use crate::model::artist::Artist;
@@ -14,21 +13,33 @@ use crate::spotify::Spotify;
 use crate::traits::{IntoBoxedViewExt, ListItem, ViewExt};
 use crate::ui::{album::AlbumView, listview::ListView};
 
+/// An album from YouTube Music.
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Album {
+    /// Album browse ID (primary identifier).
     pub id: Option<String>,
+    /// Album title.
     pub title: String,
+    /// Artist names.
     pub artists: Vec<String>,
+    /// Artist browse IDs (channel IDs).
     pub artist_ids: Vec<String>,
+    /// Release year.
     pub year: String,
+    /// Thumbnail/cover URL.
     pub cover_url: Option<String>,
-    pub url: Option<String>,
+    /// Tracks in this album.
     pub tracks: Option<Vec<Track>>,
+    /// When the album was added to library (if applicable).
     pub added_at: Option<DateTime<Utc>>,
-    total_tracks: Option<usize>,
+    /// Audio playlist ID (for playback).
+    pub audio_playlist_id: Option<String>,
+    /// Whether the album contains explicit content.
+    pub is_explicit: bool,
 }
 
 impl Album {
+    /// Create a new album with minimal required fields.
     pub fn new(id: Option<String>, title: String, artists: Vec<String>, year: String) -> Self {
         Self {
             id,
@@ -37,22 +48,30 @@ impl Album {
             artist_ids: Vec::new(),
             year,
             cover_url: None,
-            url: None,
             tracks: None,
             added_at: None,
-            total_tracks: None,
+            audio_playlist_id: None,
+            is_explicit: false,
         }
     }
 
+    /// Get the YouTube Music URL for this album.
+    pub fn url(&self) -> Option<String> {
+        self.id
+            .as_ref()
+            .map(|id| format!("https://music.youtube.com/browse/{}", id))
+    }
+
+    /// Load all tracks for this album from the API.
     pub fn load_all_tracks(&mut self, spotify: Spotify) {
-        if self.tracks.is_some() && self.tracks.as_ref().map(|t| t.len()) == self.total_tracks {
+        // Skip if tracks are already loaded
+        if self.tracks.is_some() {
             return;
         }
 
         if let Some(ref album_id) = self.id {
             if let Ok(full_album) = spotify.api.album(album_id) {
                 self.tracks = full_album.tracks.clone();
-                self.total_tracks = full_album.tracks.as_ref().map(|t| t.len());
             }
         }
     }

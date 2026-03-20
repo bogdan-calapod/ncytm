@@ -9,26 +9,44 @@ use crate::spotify::Spotify;
 use crate::traits::{IntoBoxedViewExt, ListItem, ViewExt};
 use crate::ui::artist::ArtistView;
 
+/// An artist from YouTube Music.
 #[derive(Clone, Deserialize, Serialize, Debug, Default)]
 pub struct Artist {
+    /// Artist browse ID (channel ID, primary identifier).
     pub id: Option<String>,
+    /// Artist name.
     pub name: String,
-    pub url: Option<String>,
+    /// Thumbnail URL.
+    pub thumbnail_url: Option<String>,
+    /// Top songs by this artist.
     pub tracks: Option<Vec<Track>>,
+    /// Whether the user follows this artist.
     pub is_followed: bool,
+    /// Subscriber count (formatted string).
+    pub subscribers: Option<String>,
 }
 
 impl Artist {
+    /// Create a new artist with minimal required fields.
     pub fn new(id: String, name: String) -> Self {
         Self {
             id: Some(id),
             name,
-            url: None,
+            thumbnail_url: None,
             tracks: None,
             is_followed: false,
+            subscribers: None,
         }
     }
 
+    /// Get the YouTube Music URL for this artist.
+    pub fn url(&self) -> Option<String> {
+        self.id
+            .as_ref()
+            .map(|id| format!("https://music.youtube.com/channel/{}", id))
+    }
+
+    /// Load top tracks for this artist from the API.
     fn load_top_tracks(&mut self, spotify: Spotify) {
         if let Some(artist_id) = &self.id {
             if self.tracks.is_none() {

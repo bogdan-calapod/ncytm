@@ -88,7 +88,7 @@ impl Playable {
 
     pub fn uri(&self) -> String {
         match self {
-            Self::Track(track) => track.uri.clone(),
+            Self::Track(track) => track.uri(),
             Self::Episode(episode) => episode.uri.clone(),
         }
     }

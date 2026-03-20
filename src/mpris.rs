@@ -185,7 +185,7 @@ impl MprisPlayer {
             Value::Array(
                 playable
                     .and_then(|p| p.track())
-                    .map(|t| t.album_artists)
+                    .map(|t| t.artists.clone())
                     .unwrap_or_default()
                     .into(),
             ),
@@ -202,12 +202,7 @@ impl MprisPlayer {
         );
         hm.insert(
             "xesam:discNumber".to_string(),
-            Value::I32(
-                playable
-                    .and_then(|p| p.track())
-                    .map(|t| t.disc_number)
-                    .unwrap_or(0),
-            ),
+            Value::I32(1), // YouTube Music doesn't have disc numbers
         );
         hm.insert(
             "xesam:title".to_string(),
@@ -223,12 +218,7 @@ impl MprisPlayer {
         );
         hm.insert(
             "xesam:trackNumber".to_string(),
-            Value::I32(
-                playable
-                    .and_then(|p| p.track())
-                    .map(|t| t.track_number)
-                    .unwrap_or(0) as i32,
-            ),
+            Value::I32(0), // YouTube Music doesn't expose track numbers in search/library
         );
         hm.insert(
             "xesam:url".to_string(),

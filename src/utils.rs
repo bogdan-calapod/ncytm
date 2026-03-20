@@ -26,21 +26,26 @@ pub fn format_duration(d: &std::time::Duration) -> String {
 
 /// Returns a human readable String of milliseconds in the HH:MM:SS format.
 pub fn ms_to_hms(duration: u32) -> String {
-    let mut formated_time = String::new();
-
     let total_seconds = duration / 1000;
+    seconds_to_hms(total_seconds)
+}
+
+/// Returns a human readable String of seconds in the HH:MM:SS format.
+pub fn seconds_to_hms(total_seconds: u32) -> String {
+    let mut formatted_time = String::new();
+
     let seconds = total_seconds % 60;
     let minutes = (total_seconds / 60) % 60;
     let hours = total_seconds / 3600;
 
     if hours > 0 {
-        formated_time.push_str(&format!("{hours}:{minutes:02}:"));
+        formatted_time.push_str(&format!("{hours}:{minutes:02}:"));
     } else {
-        formated_time.push_str(&format!("{minutes}:"));
+        formatted_time.push_str(&format!("{minutes}:"));
     }
-    formated_time.push_str(&format!("{seconds:02}"));
+    formatted_time.push_str(&format!("{seconds:02}"));
 
-    formated_time
+    formatted_time
 }
 
 pub fn cache_path_for_url(url: String) -> std::path::PathBuf {

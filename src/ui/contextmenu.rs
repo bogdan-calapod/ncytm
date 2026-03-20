@@ -62,7 +62,8 @@ impl ContextMenu {
         let current_user_id = library.user_id.as_ref().unwrap();
 
         for list in library.playlists.read().unwrap().iter() {
-            if current_user_id == &list.owner_id || list.collaborative {
+            // Only show playlists owned by the current user (can add tracks to)
+            if current_user_id == &list.owner_id {
                 list_select.add_item(list.name.clone(), list.clone());
             }
         }

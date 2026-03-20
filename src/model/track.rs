@@ -2,7 +2,7 @@ use std::fmt;
 use std::sync::{Arc, RwLock};
 
 use crate::config;
-use crate::utils::ms_to_hms;
+use crate::utils::seconds_to_hms;
 use chrono::{DateTime, Utc};
 
 use crate::library::Library;
@@ -13,60 +13,77 @@ use crate::queue::Queue;
 use crate::traits::{IntoBoxedViewExt, ListItem, ViewExt};
 use crate::ui::listview::ListView;
 
+/// A playable track (song) from YouTube Music.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Track {
+    /// YouTube video ID (primary identifier).
     pub id: Option<String>,
-    pub uri: String,
+    /// Track title.
     pub title: String,
-    pub track_number: u32,
-    pub disc_number: i32,
+    /// Duration in seconds.
     pub duration: u32,
+    /// Artist names.
     pub artists: Vec<String>,
+    /// Artist browse IDs (channel IDs).
     pub artist_ids: Vec<String>,
+    /// Album title.
     pub album: Option<String>,
+    /// Album browse ID.
     pub album_id: Option<String>,
-    pub album_artists: Vec<String>,
+    /// Thumbnail/cover URL.
     pub cover_url: Option<String>,
-    pub url: String,
+    /// When the track was added to library (if applicable).
     pub added_at: Option<DateTime<Utc>>,
+    /// Index in a list (for UI purposes).
     pub list_index: usize,
-    pub is_local: bool,
-    pub is_playable: Option<bool>,
+    /// Whether the track contains explicit content.
+    pub is_explicit: bool,
+    /// Set video ID (for removing from liked songs).
+    pub set_video_id: Option<String>,
 }
 
 impl Track {
+    /// Create a new track with minimal required fields.
     pub fn new(id: Option<String>, title: String, artists: Vec<String>, duration: u32) -> Self {
-        let uri = id
-            .as_ref()
-            .map(|i| format!("youtube:track:{}", i))
-            .unwrap_or_default();
-        let url = id
-            .as_ref()
-            .map(|i| format!("https://music.youtube.com/watch?v={}", i))
-            .unwrap_or_default();
         Self {
             id,
-            uri,
             title,
-            track_number: 0,
-            disc_number: 0,
             duration,
             artists,
             artist_ids: Vec::new(),
             album: None,
             album_id: None,
-            album_artists: Vec::new(),
             cover_url: None,
-            url,
             added_at: None,
             list_index: 0,
-            is_local: false,
-            is_playable: Some(true),
+            is_explicit: false,
+            set_video_id: None,
         }
     }
 
+    /// Get a URI for this track (for internal identification).
+    pub fn uri(&self) -> String {
+        self.id
+            .as_ref()
+            .map(|id| format!("youtube:track:{}", id))
+            .unwrap_or_default()
+    }
+
+    /// Get the YouTube Music URL for this track.
+    pub fn url(&self) -> Option<String> {
+        self.id
+            .as_ref()
+            .map(|id| format!("https://music.youtube.com/watch?v={}", id))
+    }
+
+    /// Get the video ID (alias for id for clarity).
+    pub fn video_id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
+    /// Format the duration as a human-readable string (e.g., "3:45").
     pub fn duration_str(&self) -> String {
-        ms_to_hms(self.duration)
+        seconds_to_hms(self.duration)
     }
 }
 
@@ -240,7 +257,8 @@ impl ListItem for Track {
 
     #[inline]
     fn is_playable(&self) -> bool {
-        self.is_playable == Some(true)
+        // All tracks from YouTube Music are playable
+        true
     }
 
     fn as_listitem(&self) -> Box<dyn ListItem> {

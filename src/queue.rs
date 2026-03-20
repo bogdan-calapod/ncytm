@@ -529,23 +529,17 @@ mod tests {
     fn make_track(id: u32) -> Playable {
         Playable::Track(Track {
             id: Some(format!("id_{id}")),
-            uri: format!("spotify:track:id_{id}"),
             title: format!("Track {id}"),
-            track_number: id,
-            disc_number: 1,
-            duration: 180_000,
+            duration: 180, // Duration in seconds
             artists: vec!["Artist".to_string()],
             artist_ids: vec![],
             album: Some("Album".to_string()),
             album_id: None,
-            album_artists: vec![],
             cover_url: None,
-            url: String::new(),
             added_at: None,
             list_index: 0,
-            is_local: false,
-            // Must be Some(true) so Spotify::load() doesn't fire events.
-            is_playable: Some(true),
+            is_explicit: false,
+            set_video_id: None,
         })
     }
 

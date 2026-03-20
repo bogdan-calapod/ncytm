@@ -1,54 +1,70 @@
+use std::iter::Iterator;
 use std::sync::{Arc, RwLock};
-use std::{cmp::Ordering, iter::Iterator};
 
 use log::debug;
 use rand::{rng, seq::IteratorRandom};
 
 use crate::model::playable::Playable;
-use crate::model::track::Track;
 use crate::queue::Queue;
 use crate::spotify::Spotify;
 use crate::traits::{IntoBoxedViewExt, ListItem, ViewExt};
 use crate::ui::{listview::ListView, playlist::PlaylistView};
 use crate::{command::SortDirection, command::SortKey, library::Library};
 
+/// A playlist from YouTube Music.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Playlist {
+    /// Playlist ID (primary identifier).
     pub id: String,
+    /// Playlist name/title.
     pub name: String,
+    /// Owner/author channel ID.
     pub owner_id: String,
+    /// Owner/author display name.
     pub owner_name: Option<String>,
-    pub snapshot_id: String,
+    /// Number of tracks in the playlist.
     pub num_tracks: usize,
+    /// Tracks in this playlist.
     pub tracks: Option<Vec<Playable>>,
-    pub collaborative: bool,
+    /// Thumbnail URL.
+    pub thumbnail_url: Option<String>,
+    /// Playlist description.
+    pub description: Option<String>,
 }
 
 impl Playlist {
+    /// Create a new playlist with minimal required fields.
     pub fn new(id: String, name: String, owner_id: String) -> Self {
         Self {
             id,
             name,
             owner_id,
             owner_name: None,
-            snapshot_id: String::new(),
             num_tracks: 0,
             tracks: None,
-            collaborative: false,
+            thumbnail_url: None,
+            description: None,
         }
     }
 
+    /// Get the YouTube Music URL for this playlist.
+    pub fn url(&self) -> String {
+        format!("https://music.youtube.com/playlist?list={}", self.id)
+    }
+
+    /// Load tracks for this playlist from the API.
     pub fn load_tracks(&mut self, spotify: &Spotify) {
         if self.tracks.is_some() {
             return;
         }
-        // Stub: would fetch tracks from API
+        // Fetch tracks from API
         if let Some(page) = spotify.api.playlist_tracks(&self.id, 50, 0) {
             self.tracks = Some(page.items);
             self.num_tracks = page.total as usize;
         }
     }
 
+    /// Check if this playlist contains a specific track.
     pub fn has_track(&self, track_id: &str) -> bool {
         self.tracks
             .as_ref()
@@ -60,17 +76,17 @@ impl Playlist {
             .unwrap_or(false)
     }
 
+    /// Delete a track from this playlist at the given index.
     pub fn delete_track(&mut self, index: usize, spotify: &Spotify) {
         if let Some(ref mut tracks) = self.tracks {
-            spotify.api.user_playlist_remove_tracks(
-                &self.id,
-                self.snapshot_id.clone().into(),
-                &[index],
-            );
+            spotify
+                .api
+                .user_playlist_remove_tracks(&self.id, None, &[index]);
             tracks.remove(index);
         }
     }
 
+    /// Append tracks to this playlist.
     pub fn append_tracks<'a, I: Iterator<Item = &'a Playable>>(
         &mut self,
         new_tracks: I,
@@ -88,15 +104,10 @@ impl Playlist {
         self.load_tracks(spotify);
     }
 
-    pub fn sort(&mut self, key: &SortKey, direction: &SortDirection, spotify: &Spotify) {
+    /// Sort tracks in this playlist.
+    pub fn sort(&mut self, key: &SortKey, direction: &SortDirection, _spotify: &Spotify) {
         debug!("Sorting playlist by {:?} {:?}", key, direction);
-        // Stub: sorting would be implemented here
-    }
-
-    pub fn shift_track(&mut self, index: usize, delta: i32, spotify: &Spotify) {
-        let new_index = (index as i32 + delta).max(0) as usize;
-        debug!("Shifting track from {} to {}", index, new_index);
-        // Stub: track shifting would be implemented here
+        // TODO: Implement playlist sorting
     }
 }
 

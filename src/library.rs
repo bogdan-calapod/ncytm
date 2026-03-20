@@ -142,7 +142,7 @@ impl Library {
             .unwrap()
             .iter()
             .find(|local| local.id == remote.id)
-            .map(|local| local.snapshot_id != remote.snapshot_id)
+            .map(|local| local.num_tracks != remote.num_tracks)
             .unwrap_or(true)
     }
 
