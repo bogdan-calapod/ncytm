@@ -5,10 +5,12 @@
 //! - API client for making requests
 //! - Response parsing
 
+pub mod api;
 pub mod auth;
 pub mod client;
 pub mod cookies;
 
+pub use api::{search, SearchAlbum, SearchArtist, SearchPlaylist, SearchResults, SearchTrack};
 pub use auth::{generate_sapisid_hash, YOUTUBE_MUSIC_ORIGIN};
 pub use client::{AccountInfo, ClientError, YouTubeMusicClient};
 pub use cookies::{CookieError, Cookies};
