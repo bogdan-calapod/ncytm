@@ -3,10 +3,10 @@
 //! Provides access to the user's library: liked songs, playlists, and albums.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
+use super::search::{AlbumRef, ArtistRef};
 use crate::youtube_music::{ClientError, YouTubeMusicClient};
-use super::search::{ArtistRef, AlbumRef};
 
 /// Browse ID for the user's liked songs playlist.
 const LIKED_SONGS_BROWSE_ID: &str = "FEmusic_liked_videos";
@@ -167,17 +167,21 @@ pub async fn get_library_albums(
 }
 
 /// Parse the liked songs response.
-fn parse_library_tracks_response(response: &Value) -> Result<LibraryResponse<LibraryTrack>, ClientError> {
+fn parse_library_tracks_response(
+    response: &Value,
+) -> Result<LibraryResponse<LibraryTrack>, ClientError> {
     let mut tracks = Vec::new();
     let mut continuation = None;
 
     // Try to find contents in the response
     // Initial response: contents.singleColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.sectionListRenderer.contents[0].musicShelfRenderer
     // Continuation response: continuationContents.musicShelfContinuation
-    
+
     let (contents, cont_token) = if let Some(cont) = response.get("continuationContents") {
         let shelf = cont.get("musicShelfContinuation");
-        let items = shelf.and_then(|s| s.get("contents")).and_then(|c| c.as_array());
+        let items = shelf
+            .and_then(|s| s.get("contents"))
+            .and_then(|c| c.as_array());
         let token = shelf
             .and_then(|s| s.get("continuations"))
             .and_then(|c| c.as_array())
@@ -190,7 +194,9 @@ fn parse_library_tracks_response(response: &Value) -> Result<LibraryResponse<Lib
         // Initial response
         let shelf = response
             .pointer("/contents/singleColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicShelfRenderer");
-        let items = shelf.and_then(|s| s.get("contents")).and_then(|c| c.as_array());
+        let items = shelf
+            .and_then(|s| s.get("contents"))
+            .and_then(|c| c.as_array());
         let token = shelf
             .and_then(|s| s.get("continuations"))
             .and_then(|c| c.as_array())
@@ -257,8 +263,9 @@ fn parse_library_track(item: &Value) -> Option<LibraryTrack> {
     // Check for duration in fixedColumns (YouTube Music puts duration there)
     if let Some(fixed_columns) = renderer.get("fixedColumns").and_then(|v| v.as_array()) {
         for col in fixed_columns {
-            if let Some(text) = col.pointer("/musicResponsiveListItemFixedColumnRenderer/text/runs/0/text")
-                .and_then(|v| v.as_str()) 
+            if let Some(text) = col
+                .pointer("/musicResponsiveListItemFixedColumnRenderer/text/runs/0/text")
+                .and_then(|v| v.as_str())
             {
                 if text.contains(':') {
                     duration_seconds = parse_duration(text);
@@ -345,7 +352,9 @@ fn parse_library_track(item: &Value) -> Option<LibraryTrack> {
 }
 
 /// Parse the library playlists response.
-fn parse_library_playlists_response(response: &Value) -> Result<LibraryResponse<LibraryPlaylist>, ClientError> {
+fn parse_library_playlists_response(
+    response: &Value,
+) -> Result<LibraryResponse<LibraryPlaylist>, ClientError> {
     let mut playlists = Vec::new();
     let mut continuation = None;
 
@@ -429,7 +438,9 @@ fn parse_library_playlist(item: &Value) -> Option<LibraryPlaylist> {
 }
 
 /// Parse the library albums response.
-fn parse_library_albums_response(response: &Value) -> Result<LibraryResponse<LibraryAlbum>, ClientError> {
+fn parse_library_albums_response(
+    response: &Value,
+) -> Result<LibraryResponse<LibraryAlbum>, ClientError> {
     let mut albums = Vec::new();
     let mut continuation = None;
 
@@ -509,7 +520,8 @@ fn parse_library_album(item: &Value) -> Option<LibraryAlbum> {
             let text = run.get("text").and_then(|v| v.as_str()).unwrap_or("");
 
             // Skip separators and type labels
-            if text == " • " || text == " · " || text == "Album" || text == "EP" || text == "Single" {
+            if text == " • " || text == " · " || text == "Album" || text == "EP" || text == "Single"
+            {
                 continue;
             }
 
@@ -829,7 +841,10 @@ mod tests {
         assert_eq!(track.artists.len(), 1);
         assert_eq!(track.artists[0].name, "Rick Astley");
         assert!(track.album.is_some());
-        assert_eq!(track.album.as_ref().unwrap().title, "Whenever You Need Somebody");
+        assert_eq!(
+            track.album.as_ref().unwrap().title,
+            "Whenever You Need Somebody"
+        );
         assert_eq!(track.duration_seconds, Some(213));
         assert_eq!(track.set_video_id, Some("abc123setid".to_string()));
         assert!(track.thumbnail_url.is_some());
@@ -839,7 +854,7 @@ mod tests {
     fn test_parse_liked_songs_continuation() {
         let response = mock_liked_songs_response();
         let result = parse_library_tracks_response(&response).unwrap();
-        
+
         assert_eq!(result.continuation, Some("next_page_token_123".to_string()));
     }
 
@@ -870,7 +885,7 @@ mod tests {
     fn test_parse_library_playlists_continuation() {
         let response = mock_library_playlists_response();
         let result = parse_library_playlists_response(&response).unwrap();
-        
+
         assert_eq!(result.continuation, Some("playlist_page_2".to_string()));
     }
 
@@ -892,7 +907,7 @@ mod tests {
     #[test]
     fn test_parse_empty_library() {
         let response = mock_empty_library_response();
-        
+
         let tracks_result = parse_library_tracks_response(&response).unwrap();
         assert!(tracks_result.items.is_empty());
         assert!(tracks_result.continuation.is_none());

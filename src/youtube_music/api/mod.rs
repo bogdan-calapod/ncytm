@@ -8,11 +8,11 @@ pub mod library;
 pub mod playlist;
 pub mod search;
 
-pub use album::{get_album, Album, AlbumTrack};
-pub use artist::{get_artist, Artist, ArtistAlbum, ArtistTopSong};
+pub use album::{Album, AlbumTrack, get_album};
+pub use artist::{Artist, ArtistAlbum, ArtistTopSong, get_artist};
 pub use library::{
-    get_library_albums, get_library_playlists, get_liked_songs, LibraryAlbum, LibraryPlaylist,
-    LibraryResponse, LibraryTrack,
+    LibraryAlbum, LibraryPlaylist, LibraryResponse, LibraryTrack, get_library_albums,
+    get_library_playlists, get_liked_songs,
 };
-pub use playlist::{get_playlist, get_playlist_continuation, Playlist, PlaylistResponse};
-pub use search::{search, SearchAlbum, SearchArtist, SearchPlaylist, SearchResults, SearchTrack};
+pub use playlist::{Playlist, PlaylistResponse, get_playlist, get_playlist_continuation};
+pub use search::{SearchAlbum, SearchArtist, SearchPlaylist, SearchResults, SearchTrack, search};

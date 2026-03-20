@@ -4,7 +4,7 @@
 //! This module provides the infrastructure to run the app's TUI in a worker thread while
 //! keeping the winit event loop on main.
 
-use std::sync::{mpsc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, mpsc};
 use std::thread;
 
 use log::{debug, warn};

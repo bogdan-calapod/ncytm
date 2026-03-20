@@ -5,7 +5,7 @@
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use thiserror::Error;
 
 use super::client::YouTubeMusicClient;
@@ -89,14 +89,14 @@ pub async fn get_stream_url(
     quality: AudioQuality,
 ) -> Result<StreamInfo, StreamError> {
     let streams = get_audio_streams(client, video_id).await?;
-    
+
     if streams.is_empty() {
         return Err(StreamError::NoAudioStreams);
     }
 
     // Select stream based on quality preference
     let stream = select_best_stream(&streams, quality);
-    
+
     Ok(stream.clone())
 }
 
@@ -119,35 +119,42 @@ pub async fn get_audio_streams(
     video_id: &str,
 ) -> Result<Vec<StreamInfo>, StreamError> {
     dlog(&format!("Downloading audio for {} with yt-dlp", video_id));
-    
+
     // Download directly to a temp file
     // Use mp3 format for best compatibility with rodio/symphonia
     let temp_path = format!("/tmp/ncytm_audio_{}.mp3", video_id);
-    
+
     // Remove old file if exists
     let _ = std::fs::remove_file(&temp_path);
-    
+
     let output = std::process::Command::new("yt-dlp")
         .args([
-            "-f", "bestaudio",
-            "-x",  // Extract audio
-            "--audio-format", "mp3",
-            "-o", &temp_path,
+            "-f",
+            "bestaudio",
+            "-x", // Extract audio
+            "--audio-format",
+            "mp3",
+            "-o",
+            &temp_path,
             "--no-warnings",
             "--no-progress",
             &format!("https://music.youtube.com/watch?v={}", video_id),
         ])
         .output();
-    
+
     match output {
         Ok(out) => {
             if out.status.success() {
                 // Check if file exists and has content
                 if let Ok(metadata) = std::fs::metadata(&temp_path) {
                     if metadata.len() > 0 {
-                        dlog(&format!("yt-dlp downloaded {} bytes to {}", metadata.len(), temp_path));
+                        dlog(&format!(
+                            "yt-dlp downloaded {} bytes to {}",
+                            metadata.len(),
+                            temp_path
+                        ));
                         return Ok(vec![StreamInfo {
-                            url: format!("file://{}", temp_path),  // Use file:// URL
+                            url: format!("file://{}", temp_path), // Use file:// URL
                             mime_type: "audio/mpeg".to_string(),
                             codec: "mp3".to_string(),
                             bitrate: 128000,
@@ -162,15 +169,18 @@ pub async fn get_audio_streams(
             }
             let stderr = String::from_utf8_lossy(&out.stderr);
             let stdout = String::from_utf8_lossy(&out.stdout);
-            dlog(&format!("yt-dlp failed - stderr: {}, stdout: {}", stderr, stdout));
-            return Err(StreamError::ApiError { 
-                message: format!("yt-dlp failed: {}", stderr) 
+            dlog(&format!(
+                "yt-dlp failed - stderr: {}, stdout: {}",
+                stderr, stdout
+            ));
+            return Err(StreamError::ApiError {
+                message: format!("yt-dlp failed: {}", stderr),
             });
         }
         Err(e) => {
             dlog(&format!("yt-dlp error: {}", e));
-            return Err(StreamError::ApiError { 
-                message: format!("yt-dlp not available: {}", e) 
+            return Err(StreamError::ApiError {
+                message: format!("yt-dlp not available: {}", e),
             });
         }
     }
@@ -194,7 +204,9 @@ async fn get_audio_streams_innertube(
     let response = client
         .post("player", &body)
         .await
-        .map_err(|e| StreamError::ApiError { message: e.to_string() })?;
+        .map_err(|e| StreamError::ApiError {
+            message: e.to_string(),
+        })?;
 
     // Check for playability status
     check_playability(&response, video_id)?;
@@ -253,11 +265,9 @@ fn check_playability(response: &Value, video_id: &str) -> Result<(), StreamError
                 .to_string();
             Err(StreamError::NotPlayable { reason })
         }
-        "CONTENT_CHECK_REQUIRED" => {
-            Err(StreamError::NotPlayable {
-                reason: "Age verification required".to_string(),
-            })
-        }
+        "CONTENT_CHECK_REQUIRED" => Err(StreamError::NotPlayable {
+            reason: "Age verification required".to_string(),
+        }),
         _ => {
             // Check if video exists
             if response.get("videoDetails").is_none() {
@@ -280,14 +290,11 @@ fn parse_stream_format(format: &Value) -> Option<StreamInfo> {
         .map(String::from)?;
 
     let mime_type_full = format.get("mimeType").and_then(|m| m.as_str())?;
-    
+
     // Parse mime type and codec (e.g., "audio/webm; codecs=\"opus\"")
     let (mime_type, codec) = parse_mime_type(mime_type_full);
 
-    let bitrate = format
-        .get("bitrate")
-        .and_then(|b| b.as_u64())
-        .unwrap_or(0) as u32;
+    let bitrate = format.get("bitrate").and_then(|b| b.as_u64()).unwrap_or(0) as u32;
 
     let sample_rate = format
         .get("audioSampleRate")
@@ -331,7 +338,7 @@ fn parse_mime_type(mime_type: &str) -> (&str, &str) {
     // Format: "audio/webm; codecs=\"opus\""
     let parts: Vec<&str> = mime_type.split(';').collect();
     let base_type = parts[0].trim();
-    
+
     let codec = parts
         .get(1)
         .and_then(|c| {
@@ -452,7 +459,10 @@ mod tests {
         ];
 
         assert_eq!(select_best_stream(&streams, AudioQuality::High).url, "high");
-        assert_eq!(select_best_stream(&streams, AudioQuality::Medium).url, "medium");
+        assert_eq!(
+            select_best_stream(&streams, AudioQuality::Medium).url,
+            "medium"
+        );
         assert_eq!(select_best_stream(&streams, AudioQuality::Low).url, "low");
     }
 

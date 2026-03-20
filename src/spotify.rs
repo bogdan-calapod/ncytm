@@ -15,7 +15,7 @@ use crate::events::EventManager;
 use crate::model::playable::Playable;
 use crate::player::Player;
 use crate::spotify_api::WebApi;
-use crate::youtube_music::{get_stream_url, AudioQuality, Cookies, YouTubeMusicClient};
+use crate::youtube_music::{AudioQuality, Cookies, YouTubeMusicClient, get_stream_url};
 
 #[cfg(feature = "mpris")]
 use crate::mpris::MprisManager;
@@ -27,7 +27,12 @@ fn dlog(msg: &str) {
         .append(true)
         .open("/tmp/ncytm_debug.log")
     {
-        let _ = writeln!(f, "[{}] {}", chrono::Local::now().format("%H:%M:%S%.3f"), msg);
+        let _ = writeln!(
+            f,
+            "[{}] {}",
+            chrono::Local::now().format("%H:%M:%S%.3f"),
+            msg
+        );
     }
 }
 
@@ -90,7 +95,10 @@ impl Default for Credentials {
 /// Commands sent to the player thread.
 #[derive(Debug)]
 enum PlayerCommand {
-    Load { video_id: String, start_playing: bool },
+    Load {
+        video_id: String,
+        start_playing: bool,
+    },
     Play,
     Pause,
     Stop,
@@ -143,7 +151,7 @@ impl Spotify {
         // Clear debug log
         let _ = std::fs::write("/tmp/ncytm_debug.log", "");
         dlog("Creating YouTube Music playback controller");
-        
+
         Ok(Self {
             events,
             #[cfg(feature = "mpris")]
@@ -166,21 +174,25 @@ impl Spotify {
 
     pub fn start_worker(&self, _credentials: Option<Credentials>) -> Result<(), String> {
         dlog("Starting player worker thread");
-        
-        let cookies = self.cookies.read().unwrap().clone()
+
+        let cookies = self
+            .cookies
+            .read()
+            .unwrap()
+            .clone()
             .ok_or("No cookies set")?;
-        
+
         let (command_tx, command_rx) = mpsc::channel();
         *self.command_tx.write().unwrap() = Some(command_tx);
-        
+
         let status = self.status.clone();
         let since = self.since.clone();
         let events = self.events.clone();
-        
+
         thread::spawn(move || {
             run_player_thread(cookies, command_rx, status, since, events);
         });
-        
+
         dlog("Player worker thread started");
         Ok(())
     }
@@ -206,9 +218,9 @@ impl Spotify {
     pub fn get_current_progress(&self) -> Duration {
         let status = self.status.read().unwrap().clone();
         match status {
-            PlayerEvent::Playing(start) => {
-                SystemTime::now().duration_since(start).unwrap_or(Duration::ZERO)
-            }
+            PlayerEvent::Playing(start) => SystemTime::now()
+                .duration_since(start)
+                .unwrap_or(Duration::ZERO),
             PlayerEvent::Paused(elapsed) => elapsed,
             _ => Duration::ZERO,
         }
@@ -228,7 +240,10 @@ impl Spotify {
 
         if let Some(ref tx) = *self.command_tx.read().unwrap() {
             dlog("Sending load command to player thread");
-            let _ = tx.send(PlayerCommand::Load { video_id, start_playing });
+            let _ = tx.send(PlayerCommand::Load {
+                video_id,
+                start_playing,
+            });
         } else {
             dlog("Player thread not started!");
         }
@@ -319,7 +334,7 @@ fn run_player_thread(
     events: EventManager,
 ) {
     dlog("Player thread starting");
-    
+
     let mut player = match Player::new() {
         Ok(p) => {
             dlog("Audio player created successfully");
@@ -330,7 +345,7 @@ fn run_player_thread(
             return;
         }
     };
-    
+
     let rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
@@ -338,7 +353,7 @@ fn run_player_thread(
             return;
         }
     };
-    
+
     let client = match YouTubeMusicClient::new(cookies) {
         Ok(c) => {
             dlog("YouTube Music client created");
@@ -349,32 +364,39 @@ fn run_player_thread(
             return;
         }
     };
-    
+
     dlog("Player thread ready, waiting for commands");
-    
+
     loop {
         match command_rx.recv() {
             Ok(cmd) => {
                 dlog(&format!("Received command: {:?}", cmd));
                 match cmd {
-                    PlayerCommand::Load { video_id, start_playing } => {
+                    PlayerCommand::Load {
+                        video_id,
+                        start_playing,
+                    } => {
                         dlog(&format!("Fetching stream URL for: {}", video_id));
-                        
+
                         let stream_result = rt.block_on(async {
                             get_stream_url(&client, &video_id, AudioQuality::High).await
                         });
-                        
+
                         match stream_result {
                             Ok(stream_info) => {
                                 dlog(&format!("Got stream URL, mime: {}", stream_info.mime_type));
-                                dlog(&format!("URL: {}...", &stream_info.url[..stream_info.url.len().min(100)]));
-                                
+                                dlog(&format!(
+                                    "URL: {}...",
+                                    &stream_info.url[..stream_info.url.len().min(100)]
+                                ));
+
                                 dlog("Calling player.load_url...");
                                 match player.load_url(&stream_info.url, start_playing) {
                                     Ok(()) => {
                                         dlog("Track loaded into player successfully!");
                                         if start_playing {
-                                            *status.write().unwrap() = PlayerEvent::Playing(SystemTime::now());
+                                            *status.write().unwrap() =
+                                                PlayerEvent::Playing(SystemTime::now());
                                             *since.write().unwrap() = Some(SystemTime::now());
                                             dlog("Status set to Playing");
                                         }

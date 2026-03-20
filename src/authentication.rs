@@ -129,21 +129,17 @@ fn get_cookies_path(config: &Config) -> PathBuf {
 /// Verify that the cookies are valid by making an API call.
 fn verify_cookies(cookies: Cookies) -> Result<AuthResult, AuthError> {
     // Create a tokio runtime for the async call
-    let runtime = Runtime::new().map_err(|e| {
-        AuthError::VerificationFailed(format!("Failed to create runtime: {}", e))
-    })?;
+    let runtime = Runtime::new()
+        .map_err(|e| AuthError::VerificationFailed(format!("Failed to create runtime: {}", e)))?;
 
     // Create client
-    let client = YouTubeMusicClient::new(cookies.clone()).map_err(|e| {
-        AuthError::InvalidCookies(format!("Failed to create client: {}", e))
-    })?;
+    let client = YouTubeMusicClient::new(cookies.clone())
+        .map_err(|e| AuthError::InvalidCookies(format!("Failed to create client: {}", e)))?;
 
     // Verify auth
-    let account_info = runtime.block_on(async {
-        client.verify_auth().await
-    }).map_err(|e| {
-        AuthError::InvalidCookies(format!("Authentication failed: {}", e))
-    })?;
+    let account_info = runtime
+        .block_on(async { client.verify_auth().await })
+        .map_err(|e| AuthError::InvalidCookies(format!("Authentication failed: {}", e)))?;
 
     Ok(AuthResult {
         cookies,
@@ -155,7 +151,7 @@ fn verify_cookies(cookies: Cookies) -> Result<AuthResult, AuthError> {
 /// Check if valid cookies exist without fully authenticating.
 pub fn has_valid_cookies(config: &Config) -> bool {
     let cookies_path = get_cookies_path(config);
-    
+
     if !cookies_path.exists() {
         return false;
     }

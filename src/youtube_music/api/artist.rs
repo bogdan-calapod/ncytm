@@ -3,7 +3,7 @@
 //! Provides access to artist details, top songs, and albums.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::search::{AlbumRef, ArtistRef};
 use crate::youtube_music::{ClientError, YouTubeMusicClient};
@@ -94,7 +94,8 @@ pub async fn get_artist(
 /// Parse the artist response.
 fn parse_artist_response(response: &Value, browse_id: &str) -> Result<Artist, ClientError> {
     // Extract header info
-    let header = response.pointer("/header/musicImmersiveHeaderRenderer")
+    let header = response
+        .pointer("/header/musicImmersiveHeaderRenderer")
         .or_else(|| response.pointer("/header/musicVisualHeaderRenderer"));
 
     let name = header
@@ -110,7 +111,9 @@ fn parse_artist_response(response: &Value, browse_id: &str) -> Result<Artist, Cl
 
     // Subscriber count from subscription button
     let subscribers = header
-        .and_then(|h| h.pointer("/subscriptionButton/subscribeButtonRenderer/subscriberCountText/runs/0/text"))
+        .and_then(|h| {
+            h.pointer("/subscriptionButton/subscribeButtonRenderer/subscriberCountText/runs/0/text")
+        })
         .and_then(|v| v.as_str())
         .map(String::from);
 
@@ -125,12 +128,18 @@ fn parse_artist_response(response: &Value, browse_id: &str) -> Result<Artist, Cl
 
     // Get play button endpoints for shuffle/radio
     let shuffle_playlist_id = header
-        .and_then(|h| h.pointer("/playButton/buttonRenderer/navigationEndpoint/watchEndpoint/playlistId"))
+        .and_then(|h| {
+            h.pointer("/playButton/buttonRenderer/navigationEndpoint/watchEndpoint/playlistId")
+        })
         .and_then(|v| v.as_str())
         .map(String::from);
 
     let radio_playlist_id = header
-        .and_then(|h| h.pointer("/startRadioButton/buttonRenderer/navigationEndpoint/watchEndpoint/playlistId"))
+        .and_then(|h| {
+            h.pointer(
+                "/startRadioButton/buttonRenderer/navigationEndpoint/watchEndpoint/playlistId",
+            )
+        })
         .and_then(|v| v.as_str())
         .map(String::from);
 
@@ -243,25 +252,22 @@ fn parse_artist_song(item: &Value) -> Option<ArtistTopSong> {
         .map(String::from);
 
     // Look for album in flex columns (usually 3rd or 4th)
-    let album = flex_columns
-        .iter()
-        .skip(1)
-        .find_map(|col| {
-            let runs = col.pointer("/musicResponsiveListItemFlexColumnRenderer/text/runs")?;
-            let run = runs.as_array()?.first()?;
-            let title = run.get("text").and_then(|v| v.as_str()).map(String::from)?;
-            let browse_id = run
-                .pointer("/navigationEndpoint/browseEndpoint/browseId")
-                .and_then(|v| v.as_str())
-                .filter(|id| id.starts_with("MPREb"))
-                .map(String::from);
+    let album = flex_columns.iter().skip(1).find_map(|col| {
+        let runs = col.pointer("/musicResponsiveListItemFlexColumnRenderer/text/runs")?;
+        let run = runs.as_array()?.first()?;
+        let title = run.get("text").and_then(|v| v.as_str()).map(String::from)?;
+        let browse_id = run
+            .pointer("/navigationEndpoint/browseEndpoint/browseId")
+            .and_then(|v| v.as_str())
+            .filter(|id| id.starts_with("MPREb"))
+            .map(String::from);
 
-            if browse_id.is_some() {
-                Some(AlbumRef { title, browse_id })
-            } else {
-                None
-            }
-        });
+        if browse_id.is_some() {
+            Some(AlbumRef { title, browse_id })
+        } else {
+            None
+        }
+    });
 
     // Fixed column: duration
     let duration_seconds = renderer
@@ -599,12 +605,24 @@ mod tests {
 
         assert_eq!(artist.browse_id, "UCuAXFkgsw1L7xaCfnd5JJOw");
         assert_eq!(artist.name, "Rick Astley");
-        assert_eq!(artist.description, Some("English singer and songwriter".to_string()));
+        assert_eq!(
+            artist.description,
+            Some("English singer and songwriter".to_string())
+        );
         assert_eq!(artist.subscribers, Some("2.5M subscribers".to_string()));
         assert_eq!(artist.views, Some("5.2B views".to_string()));
-        assert_eq!(artist.thumbnail_url, Some("https://example.com/large.jpg".to_string())); // Should get largest
-        assert_eq!(artist.shuffle_playlist_id, Some("RDCLAK5uy_shuffle123".to_string()));
-        assert_eq!(artist.radio_playlist_id, Some("RDCLAK5uy_radio123".to_string()));
+        assert_eq!(
+            artist.thumbnail_url,
+            Some("https://example.com/large.jpg".to_string())
+        ); // Should get largest
+        assert_eq!(
+            artist.shuffle_playlist_id,
+            Some("RDCLAK5uy_shuffle123".to_string())
+        );
+        assert_eq!(
+            artist.radio_playlist_id,
+            Some("RDCLAK5uy_radio123".to_string())
+        );
     }
 
     #[test]
@@ -619,7 +637,10 @@ mod tests {
         assert_eq!(song.plays, Some("1.5B plays".to_string()));
         assert_eq!(song.duration_seconds, Some(213)); // 3:33
         assert!(song.album.is_some());
-        assert_eq!(song.album.as_ref().unwrap().title, "Whenever You Need Somebody");
+        assert_eq!(
+            song.album.as_ref().unwrap().title,
+            "Whenever You Need Somebody"
+        );
         assert!(song.thumbnail_url.is_some());
     }
 

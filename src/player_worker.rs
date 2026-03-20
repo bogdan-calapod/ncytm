@@ -12,7 +12,9 @@ use tokio::runtime::Runtime;
 
 use crate::model::playable::Playable;
 use crate::player::{Player, PlayerError, PlayerState};
-use crate::youtube_music::{get_stream_url, AudioQuality, Cookies, StreamError, YouTubeMusicClient};
+use crate::youtube_music::{
+    AudioQuality, Cookies, StreamError, YouTubeMusicClient, get_stream_url,
+};
 
 /// Commands that can be sent to the player worker.
 #[derive(Debug)]
@@ -53,16 +55,11 @@ pub enum PlayerEvent {
     /// Current track finished playing.
     FinishedTrack,
     /// Track loaded and ready to play.
-    TrackLoaded {
-        duration_ms: u32,
-    },
+    TrackLoaded { duration_ms: u32 },
     /// Volume changed.
     VolumeChanged(u16),
     /// Playback position update.
-    Position {
-        position_ms: u32,
-        duration_ms: u32,
-    },
+    Position { position_ms: u32, duration_ms: u32 },
     /// An error occurred.
     Error(String),
 }
@@ -159,7 +156,11 @@ impl Drop for PlayerWorker {
 }
 
 /// Run the player worker loop.
-fn run_worker(cookies: Cookies, command_rx: Receiver<PlayerCommand>, event_tx: Sender<PlayerEvent>) {
+fn run_worker(
+    cookies: Cookies,
+    command_rx: Receiver<PlayerCommand>,
+    event_tx: Sender<PlayerEvent>,
+) {
     info!("Player worker started");
 
     // Create tokio runtime for async operations
@@ -217,9 +218,8 @@ fn run_worker(cookies: Cookies, command_rx: Receiver<PlayerCommand>, event_tx: S
                         let video_id = match playable.id() {
                             Some(id) => id,
                             None => {
-                                let _ = event_tx.send(PlayerEvent::Error(
-                                    "Track has no video ID".to_string(),
-                                ));
+                                let _ = event_tx
+                                    .send(PlayerEvent::Error("Track has no video ID".to_string()));
                                 continue;
                             }
                         };
@@ -241,31 +241,25 @@ fn run_worker(cookies: Cookies, command_rx: Receiver<PlayerCommand>, event_tx: S
                                     Ok(()) => {
                                         let duration_ms =
                                             stream_info.duration_seconds.unwrap_or(0) * 1000;
-                                        let _ = event_tx.send(PlayerEvent::TrackLoaded {
-                                            duration_ms,
-                                        });
+                                        let _ =
+                                            event_tx.send(PlayerEvent::TrackLoaded { duration_ms });
 
                                         if start_playing {
-                                            let _ = event_tx.send(PlayerEvent::Playing(
-                                                SystemTime::now(),
-                                            ));
+                                            let _ = event_tx
+                                                .send(PlayerEvent::Playing(SystemTime::now()));
                                         }
                                     }
                                     Err(e) => {
                                         error!("Failed to load audio: {}", e);
-                                        let _ = event_tx.send(PlayerEvent::Error(format!(
-                                            "Load error: {}",
-                                            e
-                                        )));
+                                        let _ = event_tx
+                                            .send(PlayerEvent::Error(format!("Load error: {}", e)));
                                     }
                                 }
                             }
                             Err(e) => {
                                 error!("Failed to get stream URL: {}", e);
-                                let _ = event_tx.send(PlayerEvent::Error(format!(
-                                    "Stream error: {}",
-                                    e
-                                )));
+                                let _ = event_tx
+                                    .send(PlayerEvent::Error(format!("Stream error: {}", e)));
                             }
                         }
                     }

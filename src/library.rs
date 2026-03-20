@@ -23,8 +23,8 @@ use crate::spotify::Spotify;
 use crate::youtube_music::{
     YouTubeMusicClient,
     api::{
-        get_liked_songs, get_library_playlists, get_library_albums,
-        LibraryTrack, LibraryPlaylist, LibraryAlbum,
+        LibraryAlbum, LibraryPlaylist, LibraryTrack, get_library_albums, get_library_playlists,
+        get_liked_songs,
     },
 };
 
@@ -384,7 +384,8 @@ impl Library {
                 debug!("playlists page: {}", page_num);
                 page_num += 1;
 
-                let result = runtime.block_on(get_library_playlists(client, continuation.as_deref()));
+                let result =
+                    runtime.block_on(get_library_playlists(client, continuation.as_deref()));
 
                 match result {
                     Ok(response) => {
@@ -393,7 +394,9 @@ impl Library {
                             list_order.push(playlist.id.clone());
 
                             // Remove from stale playlists so we won't prune it later
-                            if let Some(index) = stale_lists.iter().position(|x| x.id == playlist.id) {
+                            if let Some(index) =
+                                stale_lists.iter().position(|x| x.id == playlist.id)
+                            {
                                 stale_lists.remove(index);
                             }
 
@@ -523,7 +526,10 @@ impl Library {
         let mut i = 0u32;
 
         loop {
-            let page = self.spotify.api.current_user_followed_artists(last.as_deref());
+            let page = self
+                .spotify
+                .api
+                .current_user_followed_artists(last.as_deref());
             debug!("artists page: {i}");
             i += 1;
             if page.is_err() {
@@ -727,7 +733,10 @@ impl Library {
                     Ok(response) => {
                         // Convert LibraryTrack to Track
                         for (index, lib_track) in response.items.iter().enumerate() {
-                            tracks.push(Self::library_track_to_track(lib_track, tracks.len() + index));
+                            tracks.push(Self::library_track_to_track(
+                                lib_track,
+                                tracks.len() + index,
+                            ));
                         }
 
                         // Check for more pages
@@ -1169,7 +1178,11 @@ impl Library {
             return;
         }
 
-        if !self.spotify.api.user_playlist_unfollow_playlist(playlist_id) {
+        if !self
+            .spotify
+            .api
+            .user_playlist_unfollow_playlist(playlist_id)
+        {
             return;
         }
 

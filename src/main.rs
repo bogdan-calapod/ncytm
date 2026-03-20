@@ -30,13 +30,13 @@ mod spotify;
 mod spotify_api;
 mod spotify_url;
 mod spotify_worker;
-mod youtube_url;
 mod theme;
 mod traits;
 mod ui;
 mod utils;
 mod youtube;
 mod youtube_music;
+mod youtube_url;
 
 #[cfg(unix)]
 mod ipc;
@@ -80,7 +80,7 @@ fn main() -> Result<(), String> {
                     run_application(config_path, Some(media_handle), Some(media_events))
                 })
             }
-            
+
             #[cfg(not(all(target_os = "macos", feature = "media_control")))]
             {
                 run_application(matches.get_one::<String>("config").cloned(), None, None)

@@ -16,8 +16,8 @@ use crate::ui::listview::ListView;
 use crate::ui::pagination::Pagination;
 use crate::ui::tabbedview::TabbedView;
 use crate::youtube_url::YouTubeUrl;
-use cursive::view::ViewWrapper;
 use cursive::Cursive;
+use cursive::view::ViewWrapper;
 
 use std::sync::{Arc, RwLock};
 

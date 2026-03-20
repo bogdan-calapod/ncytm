@@ -4,11 +4,13 @@
 
 use std::collections::HashMap;
 
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE, COOKIE, ORIGIN, REFERER, USER_AGENT};
+use reqwest::header::{
+    AUTHORIZATION, CONTENT_TYPE, COOKIE, HeaderMap, HeaderValue, ORIGIN, REFERER, USER_AGENT,
+};
 use serde_json::{Value, json};
 use thiserror::Error;
 
-use super::auth::{generate_sapisid_hash, YOUTUBE_MUSIC_ORIGIN};
+use super::auth::{YOUTUBE_MUSIC_ORIGIN, generate_sapisid_hash};
 use super::cookies::Cookies;
 
 /// YouTube Music API base URL.
@@ -54,9 +56,7 @@ impl YouTubeMusicClient {
             return Err(ClientError::MissingSapisid);
         }
 
-        let http = reqwest::Client::builder()
-            .cookie_store(true)
-            .build()?;
+        let http = reqwest::Client::builder().cookie_store(true).build()?;
 
         Ok(Self { http, cookies })
     }
@@ -70,7 +70,10 @@ impl YouTubeMusicClient {
 
         // Origin and referer
         headers.insert(ORIGIN, HeaderValue::from_static(YOUTUBE_MUSIC_ORIGIN));
-        headers.insert(REFERER, HeaderValue::from_str(&format!("{}/", YOUTUBE_MUSIC_ORIGIN)).unwrap());
+        headers.insert(
+            REFERER,
+            HeaderValue::from_str(&format!("{}/", YOUTUBE_MUSIC_ORIGIN)).unwrap(),
+        );
 
         // Content type
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -85,10 +88,7 @@ impl YouTubeMusicClient {
         headers.insert(COOKIE, HeaderValue::from_str(&cookie_str).unwrap());
 
         // Additional YouTube-specific headers
-        headers.insert(
-            "X-Youtube-Client-Name",
-            HeaderValue::from_static("67"),
-        );
+        headers.insert("X-Youtube-Client-Name", HeaderValue::from_static("67"));
         headers.insert(
             "X-Youtube-Client-Version",
             HeaderValue::from_static("1.20231215.01.00"),
@@ -146,7 +146,10 @@ impl YouTubeMusicClient {
     ///
     /// The JSON response from the API.
     pub async fn post(&self, endpoint: &str, body: &Value) -> Result<Value, ClientError> {
-        let url = format!("{}/{}?key={}&prettyPrint=false", API_BASE_URL, endpoint, API_KEY);
+        let url = format!(
+            "{}/{}?key={}&prettyPrint=false",
+            API_BASE_URL, endpoint, API_KEY
+        );
 
         // Build request body with context
         let mut request_body = json!({
@@ -164,7 +167,8 @@ impl YouTubeMusicClient {
 
         let headers = self.build_headers()?;
 
-        let response = self.http
+        let response = self
+            .http
             .post(&url)
             .headers(headers)
             .json(&request_body)
@@ -187,11 +191,15 @@ impl YouTubeMusicClient {
     /// Make a POST request with the body as-is (no context override).
     /// This is useful for player requests that need a different client context.
     pub async fn post_raw(&self, endpoint: &str, body: &Value) -> Result<Value, ClientError> {
-        let url = format!("{}/{}?key={}&prettyPrint=false", API_BASE_URL, endpoint, API_KEY);
+        let url = format!(
+            "{}/{}?key={}&prettyPrint=false",
+            API_BASE_URL, endpoint, API_KEY
+        );
 
         let headers = self.build_headers()?;
 
-        let response = self.http
+        let response = self
+            .http
             .post(&url)
             .headers(headers)
             .json(body)
@@ -260,7 +268,8 @@ impl YouTubeMusicClient {
             } else {
                 // No account info and no explicit error - cookies might be invalid
                 Err(ClientError::ApiError {
-                    message: "Could not verify authentication. Cookies may be invalid or expired.".to_string(),
+                    message: "Could not verify authentication. Cookies may be invalid or expired."
+                        .to_string(),
                 })
             }
         }
@@ -366,7 +375,10 @@ mod tests {
 
         assert_eq!(info.name, Some("Test User".to_string()));
         assert_eq!(info.channel_handle, Some("@testuser".to_string()));
-        assert_eq!(info.photo_url, Some("https://example.com/photo.jpg".to_string()));
+        assert_eq!(
+            info.photo_url,
+            Some("https://example.com/photo.jpg".to_string())
+        );
     }
 
     // Integration test for verify_auth - requires real cookies to run
@@ -376,18 +388,21 @@ mod tests {
     async fn test_verify_auth_integration() {
         // This test requires actual cookies from ~/.config/ncytm/cookies.txt
         use std::path::PathBuf;
-        
-        let cookies_path = PathBuf::from(std::env::var("HOME").unwrap())
-            .join(".config/ncytm/cookies.txt");
-        
+
+        let cookies_path =
+            PathBuf::from(std::env::var("HOME").unwrap()).join(".config/ncytm/cookies.txt");
+
         if !cookies_path.exists() {
-            eprintln!("Skipping integration test - no cookies file found at {:?}", cookies_path);
+            eprintln!(
+                "Skipping integration test - no cookies file found at {:?}",
+                cookies_path
+            );
             return;
         }
 
         let cookies = Cookies::from_file(&cookies_path).expect("Failed to load cookies");
         let client = YouTubeMusicClient::new(cookies).expect("Failed to create client");
-        
+
         match client.verify_auth().await {
             Ok(info) => {
                 println!("Authentication successful!");

@@ -112,7 +112,10 @@ pub struct AlbumRef {
 /// # Returns
 ///
 /// Search results containing tracks, albums, artists, and playlists.
-pub async fn search(client: &YouTubeMusicClient, query: &str) -> Result<SearchResults, ClientError> {
+pub async fn search(
+    client: &YouTubeMusicClient,
+    query: &str,
+) -> Result<SearchResults, ClientError> {
     let body = serde_json::json!({
         "query": query,
         "params": "EgWKAQIIAWoKEAMQBBAKEAkQBQ%3D%3D"  // Search all categories
@@ -224,7 +227,7 @@ fn parse_track(renderer: &Value) -> Option<SearchTrack> {
     if let Some(runs) = second_column_runs {
         for run in runs {
             let text = run.get("text").and_then(|v| v.as_str()).unwrap_or("");
-            
+
             // Skip separators
             if text == " • " || text == " & " || text == ", " || text == " · " {
                 continue;
@@ -331,9 +334,10 @@ fn parse_album(renderer: &Value) -> Option<SearchAlbum> {
     if let Some(runs) = second_column_runs {
         for run in runs {
             let text = run.get("text").and_then(|v| v.as_str()).unwrap_or("");
-            
+
             // Skip separators and type labels
-            if text == " • " || text == "Album" || text == "EP" || text == "Single" || text == " · " {
+            if text == " • " || text == "Album" || text == "EP" || text == "Single" || text == " · "
+            {
                 continue;
             }
 
@@ -454,7 +458,7 @@ fn parse_playlist(renderer: &Value) -> Option<SearchPlaylist> {
     if let Some(runs) = second_column_runs {
         for run in runs {
             let text = run.get("text").and_then(|v| v.as_str()).unwrap_or("");
-            
+
             // Skip separators
             if text == " • " || text == " · " || text == "Playlist" {
                 continue;
@@ -815,7 +819,10 @@ mod tests {
         assert_eq!(track.title, "Never Gonna Give You Up");
         assert_eq!(track.artists.len(), 1);
         assert_eq!(track.artists[0].name, "Rick Astley");
-        assert_eq!(track.artists[0].browse_id, Some("UCuAXFkgsw1L7xaCfnd5JJOw".to_string()));
+        assert_eq!(
+            track.artists[0].browse_id,
+            Some("UCuAXFkgsw1L7xaCfnd5JJOw".to_string())
+        );
         assert!(track.album.is_some());
         let album = track.album.as_ref().unwrap();
         assert_eq!(album.title, "Whenever You Need Somebody");

@@ -3,7 +3,7 @@
 //! Provides access to playlist details and tracks.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::library::LibraryTrack;
 use super::search::ArtistRef;
@@ -97,7 +97,10 @@ pub async fn get_playlist_continuation(
 }
 
 /// Parse the initial playlist response.
-fn parse_playlist_response(response: &Value, playlist_id: &str) -> Result<PlaylistResponse, ClientError> {
+fn parse_playlist_response(
+    response: &Value,
+    playlist_id: &str,
+) -> Result<PlaylistResponse, ClientError> {
     // Extract header info
     let header = response.pointer("/header/musicDetailHeaderRenderer")
         .or_else(|| response.pointer("/header/musicEditablePlaylistDetailHeaderRenderer/header/musicDetailHeaderRenderer"));
@@ -143,7 +146,9 @@ fn parse_playlist_response(response: &Value, playlist_id: &str) -> Result<Playli
 
     // Get thumbnail
     let thumbnail_url = header
-        .and_then(|h| h.pointer("/thumbnail/croppedSquareThumbnailRenderer/thumbnail/thumbnails/0/url"))
+        .and_then(|h| {
+            h.pointer("/thumbnail/croppedSquareThumbnailRenderer/thumbnail/thumbnails/0/url")
+        })
         .and_then(|v| v.as_str())
         .map(String::from);
 
@@ -180,8 +185,10 @@ fn parse_playlist_continuation(
 ) -> Result<PlaylistResponse, ClientError> {
     let (new_tracks, continuation) = if let Some(cont) = response.get("continuationContents") {
         let shelf = cont.get("musicPlaylistShelfContinuation");
-        let items = shelf.and_then(|s| s.get("contents")).and_then(|c| c.as_array());
-        
+        let items = shelf
+            .and_then(|s| s.get("contents"))
+            .and_then(|c| c.as_array());
+
         let token = shelf
             .and_then(|s| s.get("continuations"))
             .and_then(|c| c.as_array())
@@ -191,12 +198,7 @@ fn parse_playlist_continuation(
             .map(String::from);
 
         let tracks = items
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(parse_playlist_track)
-                    .collect()
-            })
+            .map(|items| items.iter().filter_map(parse_playlist_track).collect())
             .unwrap_or_default();
 
         (tracks, token)
@@ -218,7 +220,9 @@ fn parse_playlist_tracks(response: &Value) -> (Vec<LibraryTrack>, Option<String>
     let shelf = response
         .pointer("/contents/singleColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicPlaylistShelfRenderer");
 
-    let items = shelf.and_then(|s| s.get("contents")).and_then(|c| c.as_array());
+    let items = shelf
+        .and_then(|s| s.get("contents"))
+        .and_then(|c| c.as_array());
 
     let continuation = shelf
         .and_then(|s| s.get("continuations"))
@@ -229,12 +233,7 @@ fn parse_playlist_tracks(response: &Value) -> (Vec<LibraryTrack>, Option<String>
         .map(String::from);
 
     let tracks = items
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(parse_playlist_track)
-                .collect()
-        })
+        .map(|items| items.iter().filter_map(parse_playlist_track).collect())
         .unwrap_or_default();
 
     (tracks, continuation)
@@ -582,7 +581,10 @@ mod tests {
 
         assert_eq!(playlist.playlist_id, "test_playlist_id");
         assert_eq!(playlist.title, "My Awesome Playlist");
-        assert_eq!(playlist.description, Some("A collection of great songs".to_string()));
+        assert_eq!(
+            playlist.description,
+            Some("A collection of great songs".to_string())
+        );
         assert_eq!(playlist.author, Some("John Doe".to_string()));
         assert_eq!(playlist.author_id, Some("UC1234567890".to_string()));
         assert_eq!(playlist.track_count, Some(50));

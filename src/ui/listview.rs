@@ -727,10 +727,9 @@ impl<I: ListItem + Clone> ViewExt for ListView<I> {
 
                 if let Some(url) = url {
                     let target: Option<Box<dyn ListItem>> = match url.uri_type {
-                        UriType::Track => spotify
-                            .api
-                            .track(&url.id)
-                            .map(|track| track.as_listitem()),
+                        UriType::Track => {
+                            spotify.api.track(&url.id).map(|track| track.as_listitem())
+                        }
                         UriType::Album => spotify
                             .api
                             .album(&url.id)
@@ -748,10 +747,7 @@ impl<I: ListItem + Clone> ViewExt for ListView<I> {
                             .api
                             .episode(&url.id)
                             .map(|episode| episode.as_listitem()),
-                        UriType::Show => spotify
-                            .api
-                            .show(&url.id)
-                            .map(|show| show.as_listitem()),
+                        UriType::Show => spotify.api.show(&url.id).map(|show| show.as_listitem()),
                     };
 
                     let queue = self.queue.clone();

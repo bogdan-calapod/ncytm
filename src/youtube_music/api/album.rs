@@ -3,7 +3,7 @@
 //! Provides access to album details and tracks.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::search::{AlbumRef, ArtistRef};
 use crate::youtube_music::{ClientError, YouTubeMusicClient};
@@ -66,10 +66,7 @@ pub struct AlbumTrack {
 /// # Returns
 ///
 /// Album details with tracks.
-pub async fn get_album(
-    client: &YouTubeMusicClient,
-    browse_id: &str,
-) -> Result<Album, ClientError> {
+pub async fn get_album(client: &YouTubeMusicClient, browse_id: &str) -> Result<Album, ClientError> {
     let body = json!({
         "browseId": browse_id
     });
@@ -171,7 +168,9 @@ fn parse_album_response(response: &Value, browse_id: &str) -> Result<Album, Clie
 
     // Get thumbnail
     let thumbnail_url = header
-        .and_then(|h| h.pointer("/thumbnail/croppedSquareThumbnailRenderer/thumbnail/thumbnails/0/url"))
+        .and_then(|h| {
+            h.pointer("/thumbnail/croppedSquareThumbnailRenderer/thumbnail/thumbnails/0/url")
+        })
         .and_then(|v| v.as_str())
         .map(String::from);
 
@@ -226,11 +225,17 @@ fn parse_album_response(response: &Value, browse_id: &str) -> Result<Album, Clie
 }
 
 /// Parse tracks from album response.
-fn parse_album_tracks(response: &Value, album_browse_id: &str, album_title: &str) -> Vec<AlbumTrack> {
+fn parse_album_tracks(
+    response: &Value,
+    album_browse_id: &str,
+    album_title: &str,
+) -> Vec<AlbumTrack> {
     let shelf = response
         .pointer("/contents/singleColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicShelfRenderer");
 
-    let items = shelf.and_then(|s| s.get("contents")).and_then(|c| c.as_array());
+    let items = shelf
+        .and_then(|s| s.get("contents"))
+        .and_then(|c| c.as_array());
 
     let Some(items) = items else {
         return Vec::new();
@@ -545,7 +550,10 @@ mod tests {
         assert_eq!(album.track_count, Some(10));
         assert_eq!(album.duration, Some("42 minutes".to_string()));
         assert!(album.thumbnail_url.is_some());
-        assert_eq!(album.description, Some("Rick Astley's debut album".to_string()));
+        assert_eq!(
+            album.description,
+            Some("Rick Astley's debut album".to_string())
+        );
         assert_eq!(album.audio_playlist_id, Some("OLAK5uy_abc123".to_string()));
     }
 
@@ -562,7 +570,10 @@ mod tests {
         assert_eq!(track1.track_number, Some(1));
         assert_eq!(track1.duration_seconds, Some(213)); // 3:33
         assert!(track1.album.is_some());
-        assert_eq!(track1.album.as_ref().unwrap().title, "Whenever You Need Somebody");
+        assert_eq!(
+            track1.album.as_ref().unwrap().title,
+            "Whenever You Need Somebody"
+        );
 
         let track2 = &album.tracks[1];
         assert_eq!(track2.video_id, "track2id");

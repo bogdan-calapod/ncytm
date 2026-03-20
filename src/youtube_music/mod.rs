@@ -13,12 +13,12 @@ pub mod cookies;
 pub mod stream;
 
 pub use api::{
-    get_album, get_artist, get_library_albums, get_library_playlists, get_liked_songs,
-    get_playlist, get_playlist_continuation, search, Album, AlbumTrack, Artist, ArtistAlbum,
-    ArtistTopSong, LibraryAlbum, LibraryPlaylist, LibraryResponse, LibraryTrack, Playlist,
-    PlaylistResponse, SearchAlbum, SearchArtist, SearchPlaylist, SearchResults, SearchTrack,
+    Album, AlbumTrack, Artist, ArtistAlbum, ArtistTopSong, LibraryAlbum, LibraryPlaylist,
+    LibraryResponse, LibraryTrack, Playlist, PlaylistResponse, SearchAlbum, SearchArtist,
+    SearchPlaylist, SearchResults, SearchTrack, get_album, get_artist, get_library_albums,
+    get_library_playlists, get_liked_songs, get_playlist, get_playlist_continuation, search,
 };
-pub use auth::{generate_sapisid_hash, YOUTUBE_MUSIC_ORIGIN};
+pub use auth::{YOUTUBE_MUSIC_ORIGIN, generate_sapisid_hash};
 pub use client::{AccountInfo, ClientError, YouTubeMusicClient};
 pub use cookies::{CookieError, Cookies};
-pub use stream::{get_audio_streams, get_stream_url, AudioQuality, StreamError, StreamInfo};
+pub use stream::{AudioQuality, StreamError, StreamInfo, get_audio_streams, get_stream_url};

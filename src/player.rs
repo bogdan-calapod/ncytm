@@ -4,8 +4,8 @@
 //! and symphonia for decoding various audio formats.
 
 use std::io::{BufReader, Read, Seek};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use log::{debug, error, info, warn};
