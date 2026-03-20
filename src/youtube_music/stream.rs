@@ -100,21 +100,88 @@ pub async fn get_stream_url(
     Ok(stream.clone())
 }
 
-/// Get all available audio streams for a video.
+fn dlog(msg: &str) {
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/ncytm_debug.log")
+    {
+        let _ = writeln!(f, "[STREAM] {}", msg);
+    }
+}
+
+/// Get audio stream for a video.
 ///
-/// # Arguments
-///
-/// * `client` - The YouTube Music API client
-/// * `video_id` - The YouTube video ID
-///
-/// # Returns
-///
-/// List of available audio streams.
+/// Uses yt-dlp to download directly to a temp file and returns the file path.
 pub async fn get_audio_streams(
+    _client: &YouTubeMusicClient,
+    video_id: &str,
+) -> Result<Vec<StreamInfo>, StreamError> {
+    dlog(&format!("Downloading audio for {} with yt-dlp", video_id));
+    
+    // Download directly to a temp file
+    // Use mp3 format for best compatibility with rodio/symphonia
+    let temp_path = format!("/tmp/ncytm_audio_{}.mp3", video_id);
+    
+    // Remove old file if exists
+    let _ = std::fs::remove_file(&temp_path);
+    
+    let output = std::process::Command::new("yt-dlp")
+        .args([
+            "-f", "bestaudio",
+            "-x",  // Extract audio
+            "--audio-format", "mp3",
+            "-o", &temp_path,
+            "--no-warnings",
+            "--no-progress",
+            &format!("https://music.youtube.com/watch?v={}", video_id),
+        ])
+        .output();
+    
+    match output {
+        Ok(out) => {
+            if out.status.success() {
+                // Check if file exists and has content
+                if let Ok(metadata) = std::fs::metadata(&temp_path) {
+                    if metadata.len() > 0 {
+                        dlog(&format!("yt-dlp downloaded {} bytes to {}", metadata.len(), temp_path));
+                        return Ok(vec![StreamInfo {
+                            url: format!("file://{}", temp_path),  // Use file:// URL
+                            mime_type: "audio/mpeg".to_string(),
+                            codec: "mp3".to_string(),
+                            bitrate: 128000,
+                            sample_rate: Some(44100),
+                            channels: Some(2),
+                            content_length: Some(metadata.len()),
+                            duration_seconds: None,
+                            expires_at: None,
+                        }]);
+                    }
+                }
+            }
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            dlog(&format!("yt-dlp failed - stderr: {}, stdout: {}", stderr, stdout));
+            return Err(StreamError::ApiError { 
+                message: format!("yt-dlp failed: {}", stderr) 
+            });
+        }
+        Err(e) => {
+            dlog(&format!("yt-dlp error: {}", e));
+            return Err(StreamError::ApiError { 
+                message: format!("yt-dlp not available: {}", e) 
+            });
+        }
+    }
+}
+
+/// Get audio streams using innertube API (fallback, may not work due to cipher).
+#[allow(dead_code)]
+async fn get_audio_streams_innertube(
     client: &YouTubeMusicClient,
     video_id: &str,
 ) -> Result<Vec<StreamInfo>, StreamError> {
-    // Build the player request
     let body = json!({
         "videoId": video_id,
         "playbackContext": {

@@ -76,8 +76,8 @@ impl SearchResultsView {
         tabs.add_tab("Albums", list_albums);
         tabs.add_tab("Artists", list_artists);
         tabs.add_tab("Playlists", list_playlists);
-        tabs.add_tab("Shows", list_shows);
-        tabs.add_tab("Episodes", list_episodes);
+        // Shows and Episodes tabs removed - YouTube Music doesn't have podcasts
+        let _ = (list_shows, list_episodes); // Suppress unused warnings
 
         let mut view = Self {
             search_term,

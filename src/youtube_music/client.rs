@@ -98,9 +98,10 @@ impl YouTubeMusicClient {
     }
 
     /// Build the cookie string for the Cookie header.
+    /// Only includes authentication cookies to avoid 413 errors from large requests.
     fn build_cookie_string(&self) -> String {
         self.cookies
-            .all()
+            .auth_cookies()
             .iter()
             .map(|(name, value)| format!("{}={}", name, value))
             .collect::<Vec<_>>()
@@ -167,6 +168,33 @@ impl YouTubeMusicClient {
             .post(&url)
             .headers(headers)
             .json(&request_body)
+            .send()
+            .await?;
+
+        // Check for HTTP errors
+        let status = response.status();
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(ClientError::ApiError {
+                message: format!("HTTP {}: {}", status, error_text),
+            });
+        }
+
+        let json: Value = response.json().await?;
+        Ok(json)
+    }
+
+    /// Make a POST request with the body as-is (no context override).
+    /// This is useful for player requests that need a different client context.
+    pub async fn post_raw(&self, endpoint: &str, body: &Value) -> Result<Value, ClientError> {
+        let url = format!("{}/{}?key={}&prettyPrint=false", API_BASE_URL, endpoint, API_KEY);
+
+        let headers = self.build_headers()?;
+
+        let response = self.http
+            .post(&url)
+            .headers(headers)
+            .json(body)
             .send()
             .await?;
 

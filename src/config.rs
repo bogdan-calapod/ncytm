@@ -34,7 +34,6 @@ pub enum LibraryTab {
     Albums,
     Artists,
     Playlists,
-    Podcasts,
     Browse,
 }
 

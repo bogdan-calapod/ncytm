@@ -11,6 +11,26 @@ use thiserror::Error;
 /// Required cookies for YouTube Music API authentication.
 const REQUIRED_COOKIES: &[&str] = &["SAPISID", "__Secure-1PSID", "__Secure-3PSID"];
 
+/// Cookies to include in API requests. We filter out tracking cookies (ST-*)
+/// which can make requests too large (413 errors).
+const AUTH_COOKIES: &[&str] = &[
+    "SAPISID",
+    "__Secure-1PAPISID",
+    "__Secure-3PAPISID",
+    "APISID",
+    "HSID",
+    "SSID",
+    "SID",
+    "__Secure-1PSID",
+    "__Secure-3PSID",
+    "__Secure-1PSIDTS",
+    "__Secure-3PSIDTS",
+    "SIDCC",
+    "__Secure-1PSIDCC",
+    "__Secure-3PSIDCC",
+    "LOGIN_INFO",
+];
+
 /// Errors that can occur when parsing cookies.
 #[derive(Debug, Error)]
 pub enum CookieError {
@@ -118,6 +138,16 @@ impl Cookies {
     /// Get all cookies as a HashMap reference.
     pub fn all(&self) -> &HashMap<String, String> {
         &self.jar
+    }
+
+    /// Get only the authentication cookies needed for API requests.
+    /// This filters out tracking cookies (ST-*, etc.) that can make requests too large.
+    pub fn auth_cookies(&self) -> HashMap<String, String> {
+        self.jar
+            .iter()
+            .filter(|(name, _)| AUTH_COOKIES.contains(&name.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     }
 
     /// Get the number of cookies.

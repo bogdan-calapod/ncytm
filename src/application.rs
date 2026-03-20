@@ -135,6 +135,10 @@ impl Application {
         let mut spotify =
             spotify::Spotify::new(event_manager.clone(), credentials, configuration.clone())?;
 
+        // Set cookies for playback and start the player worker
+        spotify.set_cookies(auth_result.cookies.clone());
+        spotify.start_worker(None)?;
+
         // Create YouTube Music client for library operations
         let yt_client = YouTubeMusicClient::new(auth_result.cookies)
             .map_err(|e| format!("Failed to create YouTube Music client: {}", e))?;

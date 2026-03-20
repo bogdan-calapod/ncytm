@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use cursive::Cursive;
 use cursive::view::ViewWrapper;
+use cursive::Cursive;
 use strum::IntoEnumIterator;
 
 use crate::command::Command;
@@ -47,10 +47,6 @@ impl LibraryView {
                 LibraryTab::Playlists => tabview.add_tab(
                     "Playlists",
                     PlaylistsView::new(queue.clone(), library.clone()),
-                ),
-                LibraryTab::Podcasts => tabview.add_tab(
-                    "Podcasts",
-                    ListView::new(library.shows.clone(), queue.clone(), library.clone()),
                 ),
                 LibraryTab::Browse => {
                     tabview.add_tab("Browse", BrowseView::new(queue.clone(), library.clone()))

@@ -83,11 +83,11 @@ impl Player {
         })
     }
 
-    /// Load and play audio from a URL.
+    /// Load and play audio from a URL or file path.
     ///
     /// # Arguments
     ///
-    /// * `url` - The URL to stream audio from
+    /// * `url` - The URL to stream audio from, or a file:// URL for local files
     /// * `start_playing` - Whether to start playing immediately
     pub fn load_url(&mut self, url: &str, start_playing: bool) -> Result<(), PlayerError> {
         info!("Loading audio from URL: {}", &url[..url.len().min(100)]);
@@ -95,12 +95,13 @@ impl Player {
         // Stop any current playback
         self.stop();
 
-        // Download the audio to memory (for seeking support)
-        // In a production app, you might want to use streaming instead
-        let response = reqwest::blocking::get(url)?;
-        let bytes = response.bytes()?;
-        let cursor = std::io::Cursor::new(bytes.to_vec());
-        let reader = BufReader::new(cursor);
+        // Check if this is a local file (file:// URL)
+        let file = if let Some(path) = url.strip_prefix("file://") {
+            self.open_local_file(path)?
+        } else {
+            self.download_to_file(url)?
+        };
+        let reader = BufReader::new(file);
 
         // Create decoder
         let source = Decoder::new(reader).map_err(|e| PlayerError::DecodeError(e.to_string()))?;
@@ -134,6 +135,89 @@ impl Player {
         self.position_ms.store(0, Ordering::SeqCst);
 
         Ok(())
+    }
+
+    /// Open a local audio file.
+    fn open_local_file(&self, path: &str) -> Result<std::fs::File, PlayerError> {
+        use std::io::Write;
+
+        fn dlog(msg: &str) {
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/tmp/ncytm_debug.log")
+            {
+                let _ = writeln!(f, "[PLAYER] {}", msg);
+            }
+        }
+
+        dlog(&format!("Opening local file: {}", path));
+
+        // Check if file exists and has content
+        let metadata = std::fs::metadata(path)
+            .map_err(|e| PlayerError::LoadError(format!("File not found: {} - {}", path, e)))?;
+
+        if metadata.len() == 0 {
+            return Err(PlayerError::LoadError("Audio file is empty".to_string()));
+        }
+
+        dlog(&format!("File size: {} bytes", metadata.len()));
+
+        std::fs::File::open(path)
+            .map_err(|e| PlayerError::LoadError(format!("Failed to open file: {}", e)))
+    }
+
+    /// Download audio to a temp file for reliable playback.
+    fn download_to_file(&self, url: &str) -> Result<std::fs::File, PlayerError> {
+        use std::io::Write;
+
+        fn dlog(msg: &str) {
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/tmp/ncytm_debug.log")
+            {
+                let _ = writeln!(f, "[PLAYER] {}", msg);
+            }
+        }
+
+        dlog("Downloading audio...");
+
+        // Create a temp file path
+        let temp_path = format!("/tmp/ncytm_audio_{}.webm", std::process::id());
+
+        // Use curl for downloading (more reliable with these URLs)
+        let status = std::process::Command::new("curl")
+            .args([
+                "-s", // Silent
+                "-L", // Follow redirects
+                "-o", &temp_path, url,
+            ])
+            .status()
+            .map_err(|e| PlayerError::DecodeError(format!("curl failed: {}", e)))?;
+
+        dlog(&format!("curl exit status: {:?}", status));
+
+        if !status.success() {
+            return Err(PlayerError::DecodeError(
+                "Failed to download audio".to_string(),
+            ));
+        }
+
+        // Check file size
+        let metadata =
+            std::fs::metadata(&temp_path).map_err(|e| PlayerError::DecodeError(e.to_string()))?;
+
+        dlog(&format!("Downloaded {} bytes", metadata.len()));
+
+        if metadata.len() == 0 {
+            return Err(PlayerError::DecodeError(
+                "Downloaded file is empty".to_string(),
+            ));
+        }
+
+        // Open the file for reading
+        std::fs::File::open(&temp_path).map_err(|e| PlayerError::DecodeError(e.to_string()))
     }
 
     /// Load audio from bytes.
