@@ -32,6 +32,7 @@ mod theme;
 mod traits;
 mod ui;
 mod utils;
+mod youtube_music;
 
 #[cfg(unix)]
 mod ipc;

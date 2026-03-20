@@ -94,6 +94,23 @@ pub struct Spotify {
 }
 
 impl Spotify {
+    /// Create a Spotify instance for testing without full initialization.
+    #[cfg(test)]
+    pub fn new_for_test(cfg: Arc<config::Config>, events: EventManager) -> Self {
+        Self {
+            events,
+            #[cfg(feature = "mpris")]
+            mpris: Default::default(),
+            credentials: Credentials::default(),
+            cfg,
+            status: Arc::new(RwLock::new(PlayerEvent::Stopped)),
+            api: WebApi::new(),
+            elapsed: Arc::new(RwLock::new(None)),
+            since: Arc::new(RwLock::new(None)),
+            channel: Arc::new(RwLock::new(None)),
+        }
+    }
+
     pub fn new(
         events: EventManager,
         credentials: Credentials,

@@ -1650,6 +1650,7 @@ dependencies = [
  "cursive",
  "fern",
  "futures",
+ "hex",
  "ioctl-rs",
  "libc",
  "log",
