@@ -101,6 +101,9 @@ pub struct ConfigValues {
     pub library_tabs: Option<Vec<LibraryTab>>,
     pub hide_display_names: Option<bool>,
     pub ap_port: Option<u16>,
+    /// Path to cookies.txt file for YouTube Music authentication.
+    /// Can be absolute or relative to config directory.
+    pub cookies_file: Option<String>,
 }
 
 /// The ncytm theme.

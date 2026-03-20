@@ -94,14 +94,30 @@ impl Application {
             .unwrap();
 
         let configuration = Arc::new(Config::new(configuration_file_path));
-        let credentials = authentication::get_credentials(&configuration)?;
         let theme = configuration.build_theme();
 
-        if let Err(e) = authentication::get_rspotify_token() {
-            error!("Failed to get rspotify token: {e}");
-        }
+        // Authenticate with YouTube Music using cookies
+        let auth_result = match authentication::authenticate(&configuration) {
+            Ok(result) => {
+                info!(
+                    "Authenticated as: {}",
+                    result.account_name.as_deref().unwrap_or("Unknown")
+                );
+                result
+            }
+            Err(e) => {
+                eprintln!("Authentication failed: {}", e);
+                eprintln!("{}", authentication::get_cookie_instructions());
+                return Err(e.to_string().into());
+            }
+        };
 
-        println!("Connecting to Spotify..");
+        // Create credentials for backward compatibility with Spotify stub
+        let credentials = spotify::Credentials {
+            username: auth_result.account_name.clone(),
+        };
+
+        println!("Connecting to YouTube Music..");
 
         // DON'T USE STDOUT AFTER THIS CALL!
         let mut cursive = create_cursive().map_err(|error| error.to_string())?;
