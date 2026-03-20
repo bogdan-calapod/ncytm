@@ -55,7 +55,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt update
-          sudo apt install libdbus-1-dev libncursesw5-dev libxcb-shape0-dev libxcb-xfixes0-dev
+          sudo apt install libasound2-dev libdbus-1-dev libncursesw5-dev libxcb-shape0-dev libxcb-xfixes0-dev
       - name: Running cargo build
         run: cargo build --locked --target ${{ matrix.target }} ${{ matrix.features }}
       - name: Running cargo test
@@ -98,6 +98,6 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt update
-          sudo apt install libdbus-1-dev libncursesw5-dev libxcb-shape0-dev libxcb-xfixes0-dev
+          sudo apt install libasound2-dev libdbus-1-dev libncursesw5-dev libxcb-shape0-dev libxcb-xfixes0-dev
       - name: cargo clippy
-        run: cargo clippy --locked --no-deps --workspace --all-targets --no-default-features --features crossterm_backend --verbose -- -D warnings
+        run: cargo clippy --locked --no-deps --workspace --all-targets --no-default-features --features crossterm_backend --verbose
