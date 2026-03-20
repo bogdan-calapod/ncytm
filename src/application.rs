@@ -28,6 +28,9 @@ use crate::mpris::MprisManager;
 #[cfg(unix)]
 use crate::ipc::{self, IpcSocket};
 
+#[cfg(all(target_os = "macos", feature = "media_control"))]
+use crate::macos_event_loop::{MediaControlEvent, MediaControlHandle};
+
 /// Set up the global logger to log to `filename`.
 pub fn setup_logging(filename: &Path) -> Result<(), fern::InitError> {
     fern::Dispatch::new()
@@ -73,6 +76,12 @@ pub struct Application {
     ipc: Option<IpcSocket>,
     /// The object to render to the terminal.
     cursive: CursiveRunner<Cursive>,
+    /// macOS media control handle for sending metadata/playback updates
+    #[cfg(all(target_os = "macos", feature = "media_control"))]
+    media_handle: Option<MediaControlHandle>,
+    /// macOS media control events receiver
+    #[cfg(all(target_os = "macos", feature = "media_control"))]
+    media_events: Option<std::sync::mpsc::Receiver<MediaControlEvent>>,
 }
 
 impl Application {
@@ -81,7 +90,245 @@ impl Application {
     /// # Arguments
     ///
     /// * `configuration_file_path` - Relative path to the configuration file inside the base path
+    /// * `media_handle` - (macOS only) Handle to send metadata/playback updates to media controls
+    /// * `media_events` - (macOS only) Receiver for media control events (play/pause/next/prev)
+    #[cfg(all(target_os = "macos", feature = "media_control"))]
+    pub fn new(
+        configuration_file_path: Option<String>,
+        media_handle: Option<MediaControlHandle>,
+        media_events: Option<std::sync::mpsc::Receiver<MediaControlEvent>>,
+    ) -> Result<Self, Box<dyn Error>> {
+        Self::new_inner(configuration_file_path, media_handle, media_events)
+    }
+
+    /// Create a new ncspot application.
+    ///
+    /// # Arguments
+    ///
+    /// * `configuration_file_path` - Relative path to the configuration file inside the base path
+    #[cfg(not(all(target_os = "macos", feature = "media_control")))]
     pub fn new(configuration_file_path: Option<String>) -> Result<Self, Box<dyn Error>> {
+        Self::new_inner(configuration_file_path)
+    }
+
+    #[cfg(all(target_os = "macos", feature = "media_control"))]
+    fn new_inner(
+        configuration_file_path: Option<String>,
+        media_handle: Option<MediaControlHandle>,
+        media_events: Option<std::sync::mpsc::Receiver<MediaControlEvent>>,
+    ) -> Result<Self, Box<dyn Error>> {
+        // Things here may cause the process to abort; we must do them before creating curses
+        // windows otherwise the error message will not be seen by a user
+
+        ASYNC_RUNTIME
+            .set(
+                tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap(),
+            )
+            .unwrap();
+
+        let configuration = Arc::new(Config::new(configuration_file_path));
+        let theme = configuration.build_theme();
+
+        // Authenticate with YouTube Music using cookies
+        let auth_result = match authentication::authenticate(&configuration) {
+            Ok(result) => {
+                info!(
+                    "Authenticated as: {}",
+                    result.account_name.as_deref().unwrap_or("Unknown")
+                );
+                result
+            }
+            Err(e) => {
+                eprintln!("Authentication failed: {}", e);
+                eprintln!("{}", authentication::get_cookie_instructions());
+                return Err(e.to_string().into());
+            }
+        };
+
+        // Create credentials for backward compatibility with Spotify stub
+        let credentials = spotify::Credentials {
+            username: auth_result.account_name.clone(),
+        };
+
+        println!("Connecting to YouTube Music..");
+
+        // DON'T USE STDOUT AFTER THIS CALL!
+        let mut cursive = create_cursive().map_err(|error| error.to_string())?;
+
+        cursive.set_theme(theme.clone());
+
+        #[cfg(all(unix, feature = "pancurses_backend"))]
+        cursive.add_global_callback(cursive::event::Event::CtrlChar('z'), |_s| unsafe {
+            libc::raise(libc::SIGTSTP);
+        });
+
+        let event_manager = EventManager::new(cursive.cb_sink().clone());
+
+        let mut spotify =
+            spotify::Spotify::new(event_manager.clone(), credentials, configuration.clone())?;
+
+        // Set cookies for playback and start the player worker
+        spotify.set_cookies(auth_result.cookies.clone());
+        spotify.start_worker(None)?;
+
+        // Create YouTube Music client for library operations
+        let yt_client = YouTubeMusicClient::new(auth_result.cookies)
+            .map_err(|e| format!("Failed to create YouTube Music client: {}", e))?;
+
+        let library = Arc::new(Library::new_with_client(
+            event_manager.clone(),
+            spotify.clone(),
+            yt_client,
+            configuration.clone(),
+        ));
+
+        let queue = Arc::new(queue::Queue::new(
+            spotify.clone(),
+            configuration.clone(),
+            library.clone(),
+        ));
+
+        #[cfg(feature = "mpris")]
+        let mpris_manager = MprisManager::new(
+            event_manager.clone(),
+            queue.clone(),
+            library.clone(),
+            spotify.clone(),
+        );
+
+        #[cfg(feature = "mpris")]
+        spotify.set_mpris(mpris_manager.clone());
+
+        // Load the last played track into the player
+        let playback_state = configuration.state().playback_state.clone();
+        let queue_state = configuration.state().queuestate.clone();
+
+        if let Some(playable) = queue.get_current() {
+            spotify.load(
+                &playable,
+                playback_state == PlaybackState::Playing,
+                queue_state.track_progress.as_millis() as u32,
+            );
+            spotify.update_track();
+            match playback_state {
+                PlaybackState::Stopped => {
+                    spotify.stop();
+                }
+                PlaybackState::Paused | PlaybackState::Playing | PlaybackState::Default => {
+                    spotify.pause();
+                }
+            }
+        }
+
+        #[cfg(unix)]
+        let ipc = if let Ok(runtime_directory) = utils::create_runtime_directory() {
+            Some(
+                ipc::IpcSocket::new(
+                    ASYNC_RUNTIME.get().unwrap().handle(),
+                    runtime_directory.join("ncytm.sock"),
+                    event_manager.clone(),
+                )
+                .map_err(|e| e.to_string())?,
+            )
+        } else {
+            error!("failed to create IPC socket: no suitable user runtime directory found");
+            None
+        };
+
+        let mut cmd_manager = CommandManager::new(
+            spotify.clone(),
+            queue.clone(),
+            library.clone(),
+            configuration.clone(),
+            event_manager.clone(),
+        );
+
+        cmd_manager.register_all();
+        cmd_manager.register_keybindings(&mut cursive);
+
+        cursive.set_user_data(Rc::new(UserDataInner { cmd: cmd_manager }));
+
+        let search =
+            ui::search::SearchView::new(event_manager.clone(), queue.clone(), library.clone());
+
+        let libraryview = ui::library::LibraryView::new(queue.clone(), library.clone());
+
+        let queueview = ui::queue::QueueView::new(queue.clone(), library.clone());
+
+        #[cfg(feature = "cover")]
+        let coverview = ui::cover::CoverView::new(queue.clone(), library.clone(), &configuration);
+
+        let status = ui::statusbar::StatusBar::new(queue.clone(), Arc::clone(&library));
+
+        let mut layout =
+            ui::layout::Layout::new(status, &event_manager, theme, Arc::clone(&configuration))
+                .screen("search", search.with_name("search"))
+                .screen("library", libraryview.with_name("library"))
+                .screen("queue", queueview);
+
+        #[cfg(feature = "cover")]
+        layout.add_screen("cover", coverview.with_name("cover"));
+
+        // initial screen is library
+        let initial_screen = configuration
+            .values()
+            .initial_screen
+            .clone()
+            .unwrap_or_else(|| "library".to_string());
+        if layout.has_screen(&initial_screen) {
+            layout.set_screen(initial_screen);
+        } else {
+            error!("Invalid screen name: {initial_screen}");
+            layout.set_screen("library");
+        }
+
+        cursive.add_fullscreen_layer(layout.with_name("main"));
+
+        // Send initial metadata if we have a current track and media handle
+        #[cfg(all(target_os = "macos", feature = "media_control"))]
+        if let (Some(handle), Some(playable)) = (&media_handle, queue.get_current()) {
+            use crate::model::playable::Playable;
+            match playable {
+                Playable::Track(track) => {
+                    handle.set_metadata(
+                        Some(&track.title),
+                        track.artists.first().map(|s: &String| s.as_str()),
+                        track.album.as_deref(),
+                        Some(track.duration as u64),
+                        track.cover_url.as_deref(),
+                    );
+                }
+                Playable::Episode(episode) => {
+                    handle.set_metadata(
+                        Some(&episode.name),
+                        None, // Episodes don't have show_name field
+                        None,
+                        Some(episode.duration as u64),
+                        episode.cover_url.as_deref(),
+                    );
+                }
+            }
+        }
+
+        Ok(Self {
+            queue,
+            spotify,
+            event_manager,
+            #[cfg(unix)]
+            ipc,
+            cursive,
+            #[cfg(all(target_os = "macos", feature = "media_control"))]
+            media_handle,
+            #[cfg(all(target_os = "macos", feature = "media_control"))]
+            media_events,
+        })
+    }
+
+    #[cfg(not(all(target_os = "macos", feature = "media_control")))]
+    fn new_inner(configuration_file_path: Option<String>) -> Result<Self, Box<dyn Error>> {
         // Things here may cause the process to abort; we must do them before creating curses
         // windows otherwise the error message will not be seen by a user
 
@@ -262,6 +509,43 @@ impl Application {
         })
     }
 
+    /// Update macOS media control metadata for the current track
+    #[cfg(all(target_os = "macos", feature = "media_control"))]
+    fn update_media_metadata(&self) {
+        use crate::macos_event_loop::PlaybackState as MediaPlaybackState;
+        use crate::model::playable::Playable;
+
+        if let Some(ref handle) = self.media_handle {
+            if let Some(playable) = self.queue.get_current() {
+                match playable {
+                    Playable::Track(track) => {
+                        handle.set_metadata(
+                            Some(&track.title),
+                            track.artists.first().map(|s: &String| s.as_str()),
+                            track.album.as_deref(),
+                            Some(track.duration as u64),
+                            track.cover_url.as_deref(),
+                        );
+                    }
+                    Playable::Episode(episode) => {
+                        handle.set_metadata(
+                            Some(&episode.name),
+                            None,
+                            None,
+                            Some(episode.duration as u64),
+                            episode.cover_url.as_deref(),
+                        );
+                    }
+                }
+                // Also update playback state to playing
+                let progress_secs = self.spotify.get_current_progress().as_secs_f64();
+                handle.set_playback(MediaPlaybackState::Playing {
+                    progress_secs: Some(progress_secs),
+                });
+            }
+        }
+    }
+
     /// Start the application and run the event loop.
     pub fn run(&mut self) -> Result<(), String> {
         #[cfg(unix)]
@@ -271,6 +555,46 @@ impl Application {
         // cursive event loop
         while self.cursive.is_running() {
             self.cursive.step();
+
+            // Process macOS media control events
+            #[cfg(all(target_os = "macos", feature = "media_control"))]
+            if let Some(ref media_events) = self.media_events {
+                while let Ok(event) = media_events.try_recv() {
+                    trace!("media control event: {:?}", event);
+                    match event {
+                        MediaControlEvent::Play => {
+                            self.spotify.play();
+                        }
+                        MediaControlEvent::Pause => {
+                            self.spotify.pause();
+                        }
+                        MediaControlEvent::Toggle => {
+                            self.spotify.toggleplayback();
+                        }
+                        MediaControlEvent::Next => {
+                            self.queue.next(false);
+                            self.update_media_metadata();
+                        }
+                        MediaControlEvent::Previous => {
+                            self.queue.previous();
+                            self.update_media_metadata();
+                        }
+                        MediaControlEvent::Stop => {
+                            self.spotify.stop();
+                        }
+                        MediaControlEvent::SeekForward => {
+                            self.spotify.seek_relative(10000); // 10 seconds
+                        }
+                        MediaControlEvent::SeekBackward => {
+                            self.spotify.seek_relative(-10000); // -10 seconds
+                        }
+                        MediaControlEvent::SetPosition(secs) => {
+                            self.spotify.seek((secs * 1000.0) as u32);
+                        }
+                    }
+                }
+            }
+
             #[cfg(unix)]
             for signal in signals.pending() {
                 if signal == SIGTERM || signal == SIGHUP {
@@ -291,8 +615,59 @@ impl Application {
                             ipc.publish(&state, self.queue.get_current());
                         }
 
+                        // Update macOS media controls with playback state and metadata
+                        #[cfg(all(target_os = "macos", feature = "media_control"))]
+                        if let Some(ref handle) = self.media_handle {
+                            use crate::macos_event_loop::PlaybackState as MediaPlaybackState;
+                            use crate::model::playable::Playable;
+                            let progress_secs = self.spotify.get_current_progress().as_secs_f64();
+                            match state {
+                                PlayerEvent::Playing(_) => {
+                                    // Update metadata when playback starts
+                                    if let Some(playable) = self.queue.get_current() {
+                                        match playable {
+                                            Playable::Track(track) => {
+                                                handle.set_metadata(
+                                                    Some(&track.title),
+                                                    track
+                                                        .artists
+                                                        .first()
+                                                        .map(|s: &String| s.as_str()),
+                                                    track.album.as_deref(),
+                                                    Some(track.duration as u64),
+                                                    track.cover_url.as_deref(),
+                                                );
+                                            }
+                                            Playable::Episode(episode) => {
+                                                handle.set_metadata(
+                                                    Some(&episode.name),
+                                                    None, // Episodes don't have show_name field
+                                                    None,
+                                                    Some(episode.duration as u64),
+                                                    episode.cover_url.as_deref(),
+                                                );
+                                            }
+                                        }
+                                    }
+                                    handle.set_playback(MediaPlaybackState::Playing {
+                                        progress_secs: Some(progress_secs),
+                                    });
+                                }
+                                PlayerEvent::Paused(_) => {
+                                    handle.set_playback(MediaPlaybackState::Paused {
+                                        progress_secs: Some(progress_secs),
+                                    });
+                                }
+                                PlayerEvent::Stopped | PlayerEvent::FinishedTrack => {
+                                    handle.set_playback(MediaPlaybackState::Stopped);
+                                }
+                            }
+                        }
+
                         if state == PlayerEvent::FinishedTrack {
                             self.queue.next(false);
+                            #[cfg(all(target_os = "macos", feature = "media_control"))]
+                            self.update_media_metadata();
                         }
                     }
                     Event::Queue(event) => {
