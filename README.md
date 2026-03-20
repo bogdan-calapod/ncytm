@@ -1,46 +1,53 @@
 <div align="center" style="text-align:center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="images/logo_text_dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="images/logo_text_light.svg">
-    <img alt="ncspot logo" height="128" src="images/logo_text_light.svg">
-  </picture>
-  <h3>An ncurses Spotify client written in Rust using librespot</h3>
 
-[![Crates.io](https://img.shields.io/crates/v/ncspot.svg)](https://crates.io/crates/ncspot)
-[![Gitter](https://badges.gitter.im/ncspot/community.svg)](https://gitter.im/ncspot/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+# ncytm
 
-  <img alt="ncspot search tab" src="images/screenshot.png">
+### An ncurses YouTube Music client written in Rust
+
 </div>
 
-ncspot is an ncurses Spotify client written in Rust using librespot. It is heavily inspired by
-ncurses MPD clients, such as [ncmpc](https://musicpd.org/clients/ncmpc/). My motivation was to
-provide a simple and resource friendly alternative to the official client as well as to support
-platforms that currently don't have a Spotify client, such as the \*BSDs.
+> [!WARNING]
+> 
+> This is a fork of [ncspot](https://github.com/hrkfdn/ncspot), an `ncurses` Spotify client.
+> 
+> **AI-Assisted Development**: This project is being developed with heavy AI involvement. Code quality and functionality may vary. Use at your own risk.
+>
+> **macOS support mainly**: I'm forking this for my own personal use, based mostly on macOS. While best effort is intended, no guarantee of upstream fixes or other OS support is provided.
 
-ncspot only works with a Spotify premium account as it offers features that are not available for
-free accounts.
+## About
 
-## Features
-- Support for tracks, albums, playlists, genres, searching...
-- Small [resource footprint](doc/resource_footprint.md)
-- Support for a lot of platforms
+ncytm is an `ncurses` YouTube Music client written in Rust. It is a fork of ncspot, adapted to work with YouTube Music instead of Spotify using cookie-based authentication (copy cookies from your browser).
+
+ncytm aims to provide a simple and resource-friendly terminal interface for YouTube Music, inspired by ncurses MPD clients like [ncmpc](https://musicpd.org/clients/ncmpc/).
+
+## Features (Planned)
+
+- Support for tracks, albums, playlists, searching...
+- Small resource footprint
 - Vim keybindings out of the box
-- IPC socket for remote control
+- Cookie-based authentication (copy from browser)
+- Access to your YouTube Music library and playlists
+
+## Authentication
+
+ncytm uses cookie-based authentication. You'll need to copy your YouTube Music cookies from your browser to authenticate. Detailed instructions will be provided once this feature is implemented.
 
 ## Installation
-ncspot is available on macOS (Homebrew), Windows (Scoop, WinGet), Linux (native package, Flathub and
-Snapcraft) and the BSD's. Detailed installation instructions for each platform can be found
-[here](/doc/users.md).
+
+*Coming soon*
 
 ## Configuration
-A configuration file can be provided. The default location is `~/.config/ncspot`. Detailed
-configuration information can be found [here](/doc/users.md#configuration).
+
+A configuration file can be provided. The default location is `~/.config/ncytm`. Detailed configuration information will be available once the project matures.
 
 ## Building
-Building ncspot requires a working [Rust installation](https://www.rust-lang.org/tools/install) and
-a Python 3 installation. To compile ncspot, run `cargo build`. For detailed instructions on building
-ncspot, there is more information [here](/doc/developers.md).
 
-## Packaging
-Information about provided files, how to generate some of them and current package status accross
-platforms can be found [here](/doc/package_maintainers.md).
+Building ncytm requires a working [Rust installation](https://www.rust-lang.org/tools/install) and a Python 3 installation. To compile ncytm, run `cargo build`.
+
+## Credits
+
+This project is a fork of [ncspot](https://github.com/hrkfdn/ncspot) by hrkfdn. Many thanks to the original authors and contributors.
+
+## License
+
+Same license as the original ncspot project - see [LICENSE](LICENSE) file.

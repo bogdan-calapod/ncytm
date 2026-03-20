@@ -1,17 +1,17 @@
 [package]
-name = "ncspot"
+name = "ncytm"
 readme = "README.md"
-version = "1.3.3"
-description = "ncurses Spotify client written in Rust using librespot, inspired by ncmpc and the likes."
+version = "0.1.0"
+description = "ncurses YouTube Music client written in Rust, inspired by ncmpc and the likes. Fork of ncspot."
 exclude = ["images/**"]
-keywords = ["spotify", "ncurses", "librespot", "terminal"]
+keywords = ["youtube-music", "ncurses", "terminal", "music"]
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [badges]
-maintenance = {status = "actively-developed"}
+maintenance = {status = "experimental"}
 
 [workspace]
 members = [
@@ -20,10 +20,10 @@ members = [
 ]
 
 [workspace.package]
-authors = ["Henrik Friedrichsen <henrik@affekt.org>"]
+authors = ["ncytm contributors"]
 edition = "2024"
 license = "BSD-2-Clause"
-repository = "https://github.com/hrkfdn/ncspot"
+repository = "https://github.com/anomalyco/ncytm"
 
 [workspace.lints.clippy]
 enum_glob_use = "warn"
@@ -112,15 +112,15 @@ termion_backend = ["cursive/termion-backend"]
 
 [package.metadata.deb]
 assets = [
-  ["target/release/ncspot", "usr/bin/", "755"],
-  ["misc/ncspot.desktop", "usr/share/applications/", "644"],
-  ["images/logo.svg", "usr/share/icons/hicolor/scalable/apps/ncspot.svg", "644"],
-  ["README.md", "usr/share/doc/ncspot/README.md", "644"],
+  ["target/release/ncytm", "usr/bin/", "755"],
+  ["misc/ncytm.desktop", "usr/share/applications/", "644"],
+  ["images/logo.svg", "usr/share/icons/hicolor/scalable/apps/ncytm.svg", "644"],
+  ["README.md", "usr/share/doc/ncytm/README.md", "644"],
 ]
 depends = "$auto"
 extended-description = """\
-ncurses Spotify client written in Rust using librespot. \
-It is heavily inspired by ncurses MPD clients, such as ncmpc."""
+ncurses YouTube Music client written in Rust. \
+Fork of ncspot, heavily inspired by ncurses MPD clients, such as ncmpc."""
 license-file = ["LICENSE"]
 priority = "optional"
 section = "sound"

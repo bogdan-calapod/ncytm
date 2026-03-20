@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ncytm
+Comment=Cross-platform ncurses YouTube Music client written in Rust
+TryExec=ncytm
+Exec=ncytm
+Icon=ncytm
+Terminal=true
+Categories=AudioVideo;Audio;Player;ConsoleOnly
+Keywords=youtube-music;music;player
