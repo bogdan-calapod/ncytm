@@ -22,7 +22,7 @@ use crate::model::show::Show;
 use crate::model::track::Track;
 use crate::queue::RepeatSetting;
 use crate::spotify::UriType;
-use crate::spotify_url::SpotifyUrl;
+use crate::youtube_url::YouTubeUrl;
 use crate::traits::ListItem;
 use crate::{
     events::EventManager,
@@ -365,20 +365,20 @@ impl MprisPlayer {
     }
 
     fn open_uri(&self, uri: &str) {
-        let spotify_url = if uri.contains("open.spotify.com") {
-            SpotifyUrl::from_url(uri)
+        let youtube_url = if uri.contains("music.youtube.com") || uri.contains("youtube.com") || uri.contains("youtu.be") {
+            YouTubeUrl::from_url(uri)
         } else if let Ok(uri_type) = uri.parse() {
             let id = &uri[uri.rfind(':').unwrap_or(0) + 1..uri.len()];
-            Some(SpotifyUrl::new(id, uri_type))
+            Some(YouTubeUrl::new(id, uri_type))
         } else {
             None
         };
 
-        let id = spotify_url
+        let id = youtube_url
             .as_ref()
             .map(|s| s.id.clone())
             .unwrap_or("".to_string());
-        let uri_type = spotify_url.map(|s| s.uri_type);
+        let uri_type = youtube_url.map(|s| s.uri_type);
         match uri_type {
             Some(UriType::Album) => {
                 if let Ok(album) = self.spotify.api.album(&id) {

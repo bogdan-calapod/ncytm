@@ -1,5 +1,5 @@
 use crate::queue::RepeatSetting;
-use crate::spotify_url::SpotifyUrl;
+use crate::youtube_url::YouTubeUrl;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::OnceLock;
@@ -99,7 +99,7 @@ impl fmt::Display for SeekDirection {
 pub enum InsertSource {
     #[cfg(feature = "share_clipboard")]
     Clipboard,
-    Input(SpotifyUrl),
+    Input(YouTubeUrl),
 }
 
 impl fmt::Display for InsertSource {
@@ -697,12 +697,12 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                         #[cfg(not(feature = "share_clipboard"))]
                         None => Err(E::InsufficientArgs {
                             cmd: command.into(),
-                            hint: Some("a Spotify URL".into()),
+                            hint: Some("a YouTube Music URL".into()),
                         }),
-                        Some(url) => SpotifyUrl::from_url(url).map(InsertSource::Input).ok_or(
+                        Some(url) => YouTubeUrl::from_url(url).map(InsertSource::Input).ok_or(
                             E::ArgParseError {
                                 arg: url.into(),
-                                err: "Invalid Spotify URL".into(),
+                                err: "Invalid YouTube Music URL".into(),
                             },
                         ),
                     }?;

@@ -11,11 +11,11 @@ use crate::model::show::Show;
 use crate::model::track::Track;
 use crate::queue::Queue;
 use crate::spotify::{Spotify, UriType};
-use crate::spotify_url::SpotifyUrl;
 use crate::traits::{ListItem, ViewExt};
 use crate::ui::listview::ListView;
 use crate::ui::pagination::Pagination;
 use crate::ui::tabbedview::TabbedView;
+use crate::youtube_url::YouTubeUrl;
 use cursive::view::ViewWrapper;
 use cursive::Cursive;
 
@@ -360,7 +360,7 @@ impl SearchResultsView {
             .update_token()
             .map(move |h| ASYNC_RUNTIME.get().unwrap().block_on(h).ok());
 
-        // is the query a Spotify URI?
+        // is the query a YouTube Music URI?
         if let Ok(uritype) = query.parse() {
             match uritype {
                 UriType::Track => {
@@ -418,9 +418,9 @@ impl SearchResultsView {
                     self.tabs.set_selected(5);
                 }
             }
-        // Is the query a spotify URL?
-        // https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC
-        } else if let Some(url) = SpotifyUrl::from_url(&query) {
+        // Is the query a YouTube Music URL?
+        // https://music.youtube.com/watch?v=dQw4w9WgXcQ
+        } else if let Some(url) = YouTubeUrl::from_url(&query) {
             match url.uri_type {
                 UriType::Track => {
                     self.perform_search(

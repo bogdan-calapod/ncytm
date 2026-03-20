@@ -720,7 +720,7 @@ impl<I: ListItem + Clone> ViewExt for ListView<I> {
                     #[cfg(feature = "share_clipboard")]
                     InsertSource::Clipboard => read_share()
                         .ok()
-                        .and_then(crate::spotify_url::SpotifyUrl::from_url),
+                        .and_then(crate::youtube_url::YouTubeUrl::from_url),
                 };
 
                 let spotify = self.queue.get_spotify();
