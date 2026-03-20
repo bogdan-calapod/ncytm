@@ -7,7 +7,7 @@ use crate::model::episode::Episode;
 use crate::model::track::Track;
 use crate::queue::Queue;
 use crate::traits::{ListItem, ViewExt};
-use crate::utils::ms_to_hms;
+use crate::utils::seconds_to_hms;
 use std::fmt;
 use std::sync::Arc;
 
@@ -129,7 +129,7 @@ impl Playable {
     }
 
     pub fn duration_str(&self) -> String {
-        ms_to_hms(self.duration())
+        seconds_to_hms(self.duration())
     }
 
     pub fn as_listitem(&self) -> Box<dyn ListItem> {

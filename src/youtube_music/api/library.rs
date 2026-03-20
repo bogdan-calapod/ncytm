@@ -254,6 +254,19 @@ fn parse_library_track(item: &Value) -> Option<LibraryTrack> {
     let mut album: Option<AlbumRef> = None;
     let mut duration_seconds: Option<u32> = None;
 
+    // Check for duration in fixedColumns (YouTube Music puts duration there)
+    if let Some(fixed_columns) = renderer.get("fixedColumns").and_then(|v| v.as_array()) {
+        for col in fixed_columns {
+            if let Some(text) = col.pointer("/musicResponsiveListItemFixedColumnRenderer/text/runs/0/text")
+                .and_then(|v| v.as_str()) 
+            {
+                if text.contains(':') {
+                    duration_seconds = parse_duration(text);
+                }
+            }
+        }
+    }
+
     if let Some(runs) = second_column_runs {
         for run in runs {
             let text = run.get("text").and_then(|v| v.as_str()).unwrap_or("");

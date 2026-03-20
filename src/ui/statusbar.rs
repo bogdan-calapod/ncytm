@@ -190,7 +190,9 @@ impl View for StatusBar {
 
         if let Some(t) = self.queue.get_current() {
             printer.with_color(style_bar, |printer| {
-                let duration_width = elapsed_ms
+                // Convert elapsed from ms to seconds for comparison with duration (which is in seconds)
+                let elapsed_secs = elapsed_ms / 1000;
+                let duration_width = elapsed_secs
                     .checked_mul(printer.size.x as u32)
                     .and_then(|v| v.checked_div(t.duration()))
                     .unwrap_or(0) as usize;
