@@ -20,29 +20,63 @@ ncytm is an `ncurses` YouTube Music client written in Rust. It is a fork of ncsp
 
 ncytm aims to provide a simple and resource-friendly terminal interface for YouTube Music, inspired by ncurses MPD clients like [ncmpc](https://musicpd.org/clients/ncmpc/).
 
-## Features (Planned)
+## Features
 
-- Support for tracks, albums, playlists, searching...
+- Play tracks, albums, and playlists from YouTube Music
+- Access your YouTube Music library (liked songs, playlists, albums, artists)
+- Search for tracks, albums, artists, and playlists
 - Small resource footprint
 - Vim keybindings out of the box
 - Cookie-based authentication (copy from browser)
-- Access to your YouTube Music library and playlists
-
-## Authentication
-
-ncytm uses cookie-based authentication. You'll need to copy your YouTube Music cookies from your browser to authenticate. Detailed instructions will be provided once this feature is implemented.
+- macOS media keys and Now Playing integration
 
 ## Installation
 
-*Coming soon*
+### Homebrew (macOS)
+
+```bash
+brew tap bogdan-calapod/tap
+brew install ncytm
+```
+
+### From Source
+
+Building ncytm requires a working [Rust installation](https://www.rust-lang.org/tools/install).
+
+```bash
+git clone https://github.com/bogdan-calapod/ncytm.git
+cd ncytm
+cargo build --release
+```
+
+The binary will be at `target/release/ncytm`.
+
+## Authentication
+
+ncytm uses cookie-based authentication. You'll need to export your YouTube Music cookies from your browser:
+
+1. Install a browser extension to export cookies (e.g., "Get cookies.txt LOCALLY" for Chrome/Firefox)
+2. Go to [music.youtube.com](https://music.youtube.com) and sign in
+3. Export cookies in Netscape format
+4. Save the file to `~/.config/ncytm/cookies.txt`
+
+The following cookies are required:
+- `SAPISID` or `__Secure-3PAPISID`
+- `HSID`
+- `SSID`
+- `APISID`
+- `SID`
+- `LOGIN_INFO`
 
 ## Configuration
 
-A configuration file can be provided. The default location is `~/.config/ncytm`. Detailed configuration information will be available once the project matures.
+Configuration files are stored in `~/.config/ncytm/`:
+- `cookies.txt` - Your YouTube Music cookies (required)
+- `config.toml` - Application configuration (optional)
 
-## Building
+## Requirements
 
-Building ncytm requires a working [Rust installation](https://www.rust-lang.org/tools/install) and a Python 3 installation. To compile ncytm, run `cargo build`.
+- **yt-dlp**: Required for audio playback. Install via `brew install yt-dlp` or `pip install yt-dlp`
 
 ## Credits
 
