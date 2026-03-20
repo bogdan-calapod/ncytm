@@ -736,33 +736,28 @@ impl<I: ListItem + Clone> ViewExt for ListView<I> {
                         UriType::Track => spotify
                             .api
                             .track(&url.id)
-                            .map(|track| Track::from(&track).as_listitem())
-                            .ok(),
+                            .map(|track| track.as_listitem()),
                         UriType::Album => spotify
                             .api
                             .album(&url.id)
-                            .map(|album| Album::from(&album).as_listitem())
-                            .ok(),
+                            .ok()
+                            .map(|album| album.as_listitem()),
                         UriType::Playlist => spotify
                             .api
                             .playlist(&url.id)
-                            .map(|playlist| Playlist::from(&playlist).as_listitem())
-                            .ok(),
+                            .map(|playlist| playlist.as_listitem()),
                         UriType::Artist => spotify
                             .api
                             .artist(&url.id)
-                            .map(|artist| Artist::from(&artist).as_listitem())
-                            .ok(),
+                            .map(|artist| artist.as_listitem()),
                         UriType::Episode => spotify
                             .api
                             .episode(&url.id)
-                            .map(|episode| Episode::from(&episode).as_listitem())
-                            .ok(),
+                            .map(|episode| episode.as_listitem()),
                         UriType::Show => spotify
                             .api
                             .show(&url.id)
-                            .map(|show| Show::from(&show).as_listitem())
-                            .ok(),
+                            .map(|show| show.as_listitem()),
                     };
 
                     let queue = self.queue.clone();

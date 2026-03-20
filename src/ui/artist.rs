@@ -1,9 +1,8 @@
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-use cursive::Cursive;
 use cursive::view::ViewWrapper;
-use rspotify::model::AlbumType;
+use cursive::Cursive;
 
 use crate::command::Command;
 use crate::commands::CommandResult;
@@ -15,6 +14,14 @@ use crate::queue::Queue;
 use crate::traits::ViewExt;
 use crate::ui::listview::ListView;
 use crate::ui::tabbedview::TabbedView;
+
+/// Album type filter for artist albums view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AlbumType {
+    Album,
+    Single,
+    Compilation,
+}
 
 pub struct ArtistView {
     artist: Artist,
@@ -37,9 +44,8 @@ impl ArtistView {
             let id = artist.id.clone();
             let library = library.clone();
             thread::spawn(move || {
-                if let Some(id) = id
-                    && let Ok(tracks) = spotify.api.artist_top_tracks(&id)
-                {
+                if let Some(id) = id {
+                    let tracks = spotify.api.artist_top_tracks(&id);
                     top_tracks.write().unwrap().extend(tracks);
                     library.trigger_redraw();
                 }
@@ -52,9 +58,8 @@ impl ArtistView {
             let id = artist.id.clone();
             let library = library.clone();
             thread::spawn(move || {
-                if let Some(id) = id
-                    && let Ok(artists) = spotify.api.artist_related_artists(&id)
-                {
+                if let Some(id) = id {
+                    let artists = spotify.api.artist_related_artists(&id);
                     related.write().unwrap().extend(artists);
                     library.trigger_redraw();
                 }
@@ -91,17 +96,14 @@ impl ArtistView {
 
     fn albums_view(
         artist: &Artist,
-        album_type: AlbumType,
+        _album_type: AlbumType,
         queue: Arc<Queue>,
         library: Arc<Library>,
     ) -> ListView<Album> {
         if let Some(artist_id) = &artist.id {
             let spotify = queue.get_spotify();
-            let albums_page = spotify.api.artist_albums(artist_id, Some(album_type));
-            let view = ListView::new(albums_page.items.clone(), queue, library);
-            albums_page.apply_pagination(view.get_pagination());
-
-            view
+            let albums_page = spotify.api.artist_albums(artist_id, 50, 0);
+            ListView::new(Arc::new(RwLock::new(albums_page.items)), queue, library)
         } else {
             ListView::new(Arc::new(RwLock::new(Vec::new())), queue, library)
         }

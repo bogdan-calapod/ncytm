@@ -4,8 +4,6 @@ use crate::queue::Queue;
 use crate::traits::{ListItem, ViewExt};
 use crate::utils::ms_to_hms;
 use chrono::{DateTime, Utc};
-use rspotify::model::Id;
-use rspotify::model::show::{FullEpisode, SimplifiedEpisode};
 use std::fmt;
 use std::sync::Arc;
 
@@ -23,40 +21,22 @@ pub struct Episode {
 }
 
 impl Episode {
+    pub fn new(id: String, name: String, duration: u32) -> Self {
+        Self {
+            id: id.clone(),
+            uri: format!("youtube:episode:{}", id),
+            duration,
+            name,
+            description: String::new(),
+            release_date: String::new(),
+            cover_url: None,
+            added_at: None,
+            list_index: 0,
+        }
+    }
+
     pub fn duration_str(&self) -> String {
         ms_to_hms(self.duration)
-    }
-}
-
-impl From<&SimplifiedEpisode> for Episode {
-    fn from(episode: &SimplifiedEpisode) -> Self {
-        Self {
-            id: episode.id.id().to_string(),
-            uri: episode.id.uri(),
-            duration: episode.duration.num_milliseconds() as u32,
-            name: episode.name.clone(),
-            description: episode.description.clone(),
-            release_date: episode.release_date.clone(),
-            cover_url: episode.images.first().map(|img| img.url.clone()),
-            added_at: None,
-            list_index: 0,
-        }
-    }
-}
-
-impl From<&FullEpisode> for Episode {
-    fn from(episode: &FullEpisode) -> Self {
-        Self {
-            id: episode.id.id().to_string(),
-            uri: episode.id.uri(),
-            duration: episode.duration.num_milliseconds() as u32,
-            name: episode.name.clone(),
-            description: episode.description.clone(),
-            release_date: episode.release_date.clone(),
-            cover_url: episode.images.first().map(|img| img.url.clone()),
-            added_at: None,
-            list_index: 0,
-        }
     }
 }
 
@@ -70,16 +50,16 @@ impl ListItem for Episode {
     fn is_playing(&self, queue: &Queue) -> bool {
         let current = queue.get_current();
         current
-            .map(|t| t.id() == Some(self.id.clone()))
+            .map(|t| t.id().as_deref() == Some(&self.id))
             .unwrap_or(false)
     }
 
     fn display_left(&self, _library: &Library) -> String {
-        self.name.clone()
+        format!("{self}")
     }
 
     fn display_right(&self, _library: &Library) -> String {
-        format!("{} [{}]", self.duration_str(), self.release_date)
+        format!("{} {}", self.release_date, self.duration_str())
     }
 
     fn play(&mut self, queue: &Queue) {
@@ -95,10 +75,11 @@ impl ListItem for Episode {
         queue.append(Playable::Episode(self.clone()));
     }
 
-    fn toggle_saved(&mut self, _library: &Library) {}
+    fn toggle_saved(&mut self, _library: &Library) {
+        // Episodes don't have a saved state in YouTube Music
+    }
 
     fn save(&mut self, _library: &Library) {}
-
     fn unsave(&mut self, _library: &Library) {}
 
     fn open(&self, _queue: Arc<Queue>, _library: Arc<Library>) -> Option<Box<dyn ViewExt>> {
@@ -106,7 +87,7 @@ impl ListItem for Episode {
     }
 
     fn share_url(&self) -> Option<String> {
-        Some(format!("https://open.spotify.com/episode/{}", self.id))
+        Some(format!("https://music.youtube.com/watch?v={}", self.id))
     }
 
     #[inline]

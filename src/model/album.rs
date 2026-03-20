@@ -1,11 +1,9 @@
 use rand::{rng, seq::IteratorRandom};
-use rspotify::model::Id;
 use std::fmt;
 use std::sync::{Arc, RwLock};
 
 use chrono::{DateTime, Utc};
 use log::debug;
-use rspotify::model::album::{FullAlbum, SavedAlbum, SimplifiedAlbum};
 
 use crate::library::Library;
 use crate::model::artist::Artist;
@@ -31,108 +29,32 @@ pub struct Album {
 }
 
 impl Album {
+    pub fn new(id: Option<String>, title: String, artists: Vec<String>, year: String) -> Self {
+        Self {
+            id,
+            title,
+            artists,
+            artist_ids: Vec::new(),
+            year,
+            cover_url: None,
+            url: None,
+            tracks: None,
+            added_at: None,
+            total_tracks: None,
+        }
+    }
+
     pub fn load_all_tracks(&mut self, spotify: Spotify) {
         if self.tracks.is_some() && self.tracks.as_ref().map(|t| t.len()) == self.total_tracks {
             return;
         }
 
         if let Some(ref album_id) = self.id {
-            let mut collected_tracks = Vec::new();
             if let Ok(full_album) = spotify.api.album(album_id) {
-                let mut tracks_result = Some(full_album.tracks.clone());
-                while let Some(ref tracks) = tracks_result {
-                    for t in &tracks.items {
-                        collected_tracks.push(Track::from_simplified_track(t, &full_album));
-                    }
-
-                    debug!("got {} tracks", tracks.items.len());
-
-                    // load next batch if necessary
-                    tracks_result = match tracks.next {
-                        Some(_) => {
-                            debug!("requesting tracks again..");
-                            spotify
-                                .api
-                                .album_tracks(
-                                    album_id,
-                                    50,
-                                    tracks.offset + tracks.items.len() as u32,
-                                )
-                                .ok()
-                        }
-                        None => None,
-                    }
-                }
+                self.tracks = full_album.tracks.clone();
+                self.total_tracks = full_album.tracks.as_ref().map(|t| t.len());
             }
-
-            self.total_tracks = Some(collected_tracks.len());
-            self.tracks = Some(collected_tracks);
         }
-    }
-}
-
-impl From<&SimplifiedAlbum> for Album {
-    fn from(sa: &SimplifiedAlbum) -> Self {
-        Self {
-            id: sa.id.as_ref().map(|id| id.id().to_string()),
-            title: sa.name.clone(),
-            artists: sa.artists.iter().map(|sa| sa.name.clone()).collect(),
-            artist_ids: sa
-                .artists
-                .iter()
-                .filter_map(|a| a.id.as_ref().map(|id| id.id().to_string()))
-                .collect(),
-            year: sa
-                .release_date
-                .clone()
-                .unwrap_or_default()
-                .split('-')
-                .next()
-                .unwrap()
-                .into(),
-            cover_url: sa.images.first().map(|i| i.url.clone()),
-            url: sa.id.as_ref().map(|id| id.url()),
-            tracks: None,
-            added_at: None,
-            total_tracks: None,
-        }
-    }
-}
-
-impl From<&FullAlbum> for Album {
-    fn from(fa: &FullAlbum) -> Self {
-        let tracks = Some(
-            fa.tracks
-                .items
-                .iter()
-                .map(|st| Track::from_simplified_track(st, fa))
-                .collect(),
-        );
-
-        Self {
-            id: Some(fa.id.id().to_string()),
-            title: fa.name.clone(),
-            artists: fa.artists.iter().map(|sa| sa.name.clone()).collect(),
-            artist_ids: fa
-                .artists
-                .iter()
-                .filter_map(|a| a.id.as_ref().map(|id| id.id().to_string()))
-                .collect(),
-            year: fa.release_date.split('-').next().unwrap().into(),
-            cover_url: fa.images.first().map(|i| i.url.clone()),
-            url: Some(fa.id.uri()),
-            tracks,
-            added_at: None,
-            total_tracks: Some(fa.tracks.total as usize),
-        }
-    }
-}
-
-impl From<&SavedAlbum> for Album {
-    fn from(sa: &SavedAlbum) -> Self {
-        let mut album: Self = (&sa.album).into();
-        album.added_at = Some(sa.added_at);
-        album
     }
 }
 
@@ -248,52 +170,44 @@ impl ListItem for Album {
         library: Arc<Library>,
     ) -> Option<Box<dyn ViewExt>> {
         self.load_all_tracks(queue.get_spotify());
-        const MAX_SEEDS: usize = 5;
-        let track_ids: Vec<&str> = self
+        let track_ids: Vec<String> = self
             .tracks
             .as_ref()?
             .iter()
-            .filter_map(|t| t.id.as_deref())
-            // spotify allows at max 5 seed items, so choose 4 random tracks...
-            .sample(&mut rng(), MAX_SEEDS - 1);
+            .filter_map(|t| t.id.clone())
+            .take(4)
+            .collect();
 
-        let artist_id: Option<String> = self
-            .artist_ids
-            .iter()
-            .cloned()
-            // ...and one artist
-            .choose(&mut rng());
+        let artist_id: Option<String> = self.artist_ids.iter().cloned().choose(&mut rng());
 
-        if track_ids.is_empty() && artist_id.is_some() {
+        if track_ids.is_empty() && artist_id.is_none() {
             return None;
         }
 
         let spotify = queue.get_spotify();
-        let recommendations: Option<Vec<Track>> = spotify
+        let recommendations = spotify
             .api
-            .recommendations(
-                artist_id.as_ref().map(|aid| vec![aid.as_str()]),
-                None,
-                Some(track_ids),
+            .recommendations(Some(track_ids), artist_id.map(|a| vec![a]));
+
+        if recommendations.is_empty() {
+            None
+        } else {
+            Some(
+                ListView::new(
+                    Arc::new(RwLock::new(recommendations)),
+                    queue.clone(),
+                    library.clone(),
+                )
+                .with_title(&format!("Similar to Album \"{}\"", self.title))
+                .into_boxed_view_ext(),
             )
-            .ok()
-            .map(|r| r.tracks)
-            .map(|tracks| tracks.iter().map(Track::from).collect());
-        recommendations.map(|tracks| {
-            ListView::new(
-                Arc::new(RwLock::new(tracks)),
-                queue.clone(),
-                library.clone(),
-            )
-            .with_title(&format!("Similar to Album \"{}\"", self.title))
-            .into_boxed_view_ext()
-        })
+        }
     }
 
     fn share_url(&self) -> Option<String> {
         self.id
             .clone()
-            .map(|id| format!("https://open.spotify.com/album/{id}"))
+            .map(|id| format!("https://music.youtube.com/playlist?list={id}"))
     }
 
     fn artists(&self) -> Option<Vec<Artist>> {

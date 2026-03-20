@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
-use cursive::Cursive;
 use cursive::view::ViewWrapper;
+use cursive::Cursive;
 
 use crate::command::Command;
 use crate::commands::CommandResult;
@@ -27,8 +27,9 @@ impl PlaylistView {
         let mut playlist = playlist.clone();
         playlist.load_tracks(&queue.get_spotify());
 
+        let spotify = queue.get_spotify();
         if let Some(order) = library.cfg.state().playlist_orders.get(&playlist.id) {
-            playlist.sort(&order.key, &order.direction);
+            playlist.sort(&order.key, &order.direction, &spotify);
         }
 
         let tracks = if let Some(t) = playlist.tracks.as_ref() {
@@ -36,8 +37,6 @@ impl PlaylistView {
         } else {
             Vec::new()
         };
-
-        let spotify = queue.get_spotify();
         let list = ListView::new(
             Arc::new(RwLock::new(tracks)),
             queue.clone(),
@@ -81,15 +80,9 @@ impl ViewExt for PlaylistView {
         if let Command::Delete = cmd {
             let pos = self.list.get_selected_index();
 
-            return if self
-                .playlist
-                .delete_track(pos, self.spotify.clone(), &self.library)
-            {
-                self.list.remove(pos);
-                Ok(CommandResult::Consumed(None))
-            } else {
-                Err("Could not delete track.".to_string())
-            };
+            self.playlist.delete_track(pos, &self.spotify);
+            self.list.remove(pos);
+            return Ok(CommandResult::Consumed(None));
         }
 
         if let Command::Sort(key, direction) = cmd {
@@ -103,7 +96,7 @@ impl ViewExt for PlaylistView {
                     .insert(self.playlist.id.clone(), order);
             });
 
-            self.playlist.sort(key, direction);
+            self.playlist.sort(key, direction, &self.spotify);
             let tracks = self.playlist.tracks.as_ref().unwrap_or(&Vec::new()).clone();
             self.list = ListView::new(
                 Arc::new(RwLock::new(tracks)),

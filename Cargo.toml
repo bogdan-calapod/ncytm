@@ -43,7 +43,7 @@ lto = false
 codegen-units = 16
 
 [dependencies]
-chrono = "0.4"
+chrono = {version = "0.4", features = ["serde"]}
 clap = "4.6.0"
 arboard = {version = "3.6", optional = true}
 crossbeam-channel = "0.5"
@@ -52,23 +52,21 @@ fern = "0.7"
 futures = "0.3"
 ioctl-rs = {version = "0.2", optional = true}
 libc = "0.2.183"
-librespot-core = "0.8.0"
-librespot-oauth = "0.8.0"
-librespot-playback = {version = "0.8.0", default-features = false, features = ["native-tls"]}
-librespot-protocol = "0.8.0"
 log = "0.4.29"
 pancurses = {version = "0.17.0", optional = true}
 parse_duration = "2.1.1"
 platform-dirs = "0.3.0"
 rand = "0.10"
 regex = "1"
-reqwest = {version = "0.13", features = ["blocking", "json"]}
-serde = "1.0"
+reqwest = {version = "0.12", default-features = false, features = ["json", "cookies", "rustls-tls", "blocking"]}
+serde = {version = "1.0", features = ["derive"]}
 serde_cbor = "0.11.2"
 serde_json = "1.0"
+sha1 = "0.10"
 strum = "0.28"
 strum_macros = "0.28"
-tokio = {version = "1", features = ["rt-multi-thread", "sync", "time", "net"]}
+thiserror = "2.0"
+tokio = {version = "1", features = ["rt-multi-thread", "sync", "time", "net", "macros"]}
 tokio-util = {version = "0.7.18", features = ["codec"]}
 tokio-stream = {version = "0.1.18", features = ["sync"]}
 toml = "1.0"
@@ -77,11 +75,6 @@ url = "2.5"
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.4.3"
-
-[dependencies.rspotify]
-default-features = false
-features = ["client-ureq", "ureq-native-tls"]
-version = "0.15.0"
 
 [dependencies.cursive]
 default-features = false
@@ -95,17 +88,13 @@ features = ["z"]
 optional = true
 
 [features]
-alsa_backend = ["librespot-playback/alsa-backend"]
 cover = ["ioctl-rs"] # Support displaying the album cover
-default = ["share_clipboard", "pulseaudio_backend", "mpris", "notify", "crossterm_backend"]
-mpris = ["zbus"] # Allow ncspot to be controlled via MPRIS API
+default = ["share_clipboard", "mpris", "notify", "crossterm_backend"]
+mpris = ["zbus"] # Allow ncytm to be controlled via MPRIS API
 ncurses_backend = ["cursive/ncurses-backend"]
 notify = ["notify-rust"] # Show what's playing via a notification
 crossterm_backend = ["cursive/crossterm-backend"]
 pancurses_backend = ["cursive/pancurses-backend", "pancurses/win32"]
-portaudio_backend = ["librespot-playback/portaudio-backend"]
-pulseaudio_backend = ["librespot-playback/pulseaudio-backend"]
-rodio_backend = ["librespot-playback/rodio-backend"]
 share_clipboard = ["arboard", "arboard/wayland-data-control"] # Share a link to the system clipboard
 share_selection = ["arboard", "arboard/wayland-data-control"] # Use the primary selection for sharing - linux and bsd only
 termion_backend = ["cursive/termion-backend"]

@@ -1,5 +1,4 @@
 use chrono::{DateTime, Utc};
-use rspotify::model::PlayableItem;
 
 use crate::library::Library;
 use crate::model::album::Album;
@@ -137,31 +136,6 @@ impl Playable {
         match self {
             Self::Track(track) => track.as_listitem(),
             Self::Episode(episode) => episode.as_listitem(),
-        }
-    }
-}
-
-impl From<&PlayableItem> for Playable {
-    fn from(item: &PlayableItem) -> Self {
-        match item {
-            PlayableItem::Episode(episode) => Self::Episode(episode.into()),
-            PlayableItem::Track(track) => Self::Track(track.into()),
-            PlayableItem::Unknown(value) => panic!("Unknown playable item {value:?}"),
-        }
-    }
-}
-
-impl From<&Playable> for Option<rspotify::prelude::PlayableId<'_>> {
-    fn from(p: &Playable) -> Self {
-        match p {
-            Playable::Track(t) => {
-                t.id.clone()
-                    .and_then(|id| rspotify::model::TrackId::from_id(id).ok())
-                    .map(rspotify::prelude::PlayableId::Track)
-            }
-            Playable::Episode(e) => rspotify::model::EpisodeId::from_id(e.id.clone())
-                .map(rspotify::prelude::PlayableId::Episode)
-                .ok(),
         }
     }
 }

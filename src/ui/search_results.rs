@@ -16,10 +16,9 @@ use crate::traits::{ListItem, ViewExt};
 use crate::ui::listview::ListView;
 use crate::ui::pagination::Pagination;
 use crate::ui::tabbedview::TabbedView;
-use cursive::Cursive;
 use cursive::view::ViewWrapper;
-use rspotify::model::SearchType;
-use rspotify::model::search::SearchResult;
+use cursive::Cursive;
+
 use std::sync::{Arc, RwLock};
 
 pub struct SearchResultsView {
@@ -110,10 +109,9 @@ impl SearchResultsView {
         _offset: usize,
         _append: bool,
     ) -> u32 {
-        if let Ok(results) = spotify.api.track(query) {
-            let t = vec![(&results).into()];
+        if let Some(result) = spotify.api.track(query) {
             let mut r = tracks.write().unwrap();
-            *r = t;
+            *r = vec![result];
             return 1;
         }
         0
@@ -126,22 +124,17 @@ impl SearchResultsView {
         offset: usize,
         append: bool,
     ) -> u32 {
-        if let Ok(SearchResult::Tracks(results)) =
-            spotify
-                .api
-                .search(SearchType::Track, query, 50, offset as u32)
-        {
-            let mut t = results.items.iter().map(|ft| ft.into()).collect();
+        let results = spotify.api.search(query, 50, offset as u32);
+        let total = results.tracks.len() as u32;
+        if total > 0 {
             let mut r = tracks.write().unwrap();
-
             if append {
-                r.append(&mut t);
+                r.extend(results.tracks);
             } else {
-                *r = t;
+                *r = results.tracks;
             }
-            return results.total;
         }
-        0
+        total
     }
 
     fn get_album(
@@ -151,10 +144,9 @@ impl SearchResultsView {
         _offset: usize,
         _append: bool,
     ) -> u32 {
-        if let Ok(results) = spotify.api.album(query) {
-            let a = vec![(&results).into()];
+        if let Ok(result) = spotify.api.album(query) {
             let mut r = albums.write().unwrap();
-            *r = a;
+            *r = vec![result];
             return 1;
         }
         0
@@ -167,22 +159,17 @@ impl SearchResultsView {
         offset: usize,
         append: bool,
     ) -> u32 {
-        if let Ok(SearchResult::Albums(results)) =
-            spotify
-                .api
-                .search(SearchType::Album, query, 50, offset as u32)
-        {
-            let mut a = results.items.iter().map(|sa| sa.into()).collect();
+        let results = spotify.api.search(query, 50, offset as u32);
+        let total = results.albums.len() as u32;
+        if total > 0 {
             let mut r = albums.write().unwrap();
-
             if append {
-                r.append(&mut a);
+                r.extend(results.albums);
             } else {
-                *r = a;
+                *r = results.albums;
             }
-            return results.total;
         }
-        0
+        total
     }
 
     fn get_artist(
@@ -192,10 +179,9 @@ impl SearchResultsView {
         _offset: usize,
         _append: bool,
     ) -> u32 {
-        if let Ok(results) = spotify.api.artist(query) {
-            let a = vec![(&results).into()];
+        if let Some(result) = spotify.api.artist(query) {
             let mut r = artists.write().unwrap();
-            *r = a;
+            *r = vec![result];
             return 1;
         }
         0
@@ -208,22 +194,17 @@ impl SearchResultsView {
         offset: usize,
         append: bool,
     ) -> u32 {
-        if let Ok(SearchResult::Artists(results)) =
-            spotify
-                .api
-                .search(SearchType::Artist, query, 50, offset as u32)
-        {
-            let mut a = results.items.iter().map(|fa| fa.into()).collect();
+        let results = spotify.api.search(query, 50, offset as u32);
+        let total = results.artists.len() as u32;
+        if total > 0 {
             let mut r = artists.write().unwrap();
-
             if append {
-                r.append(&mut a);
+                r.extend(results.artists);
             } else {
-                *r = a;
+                *r = results.artists;
             }
-            return results.total;
         }
-        0
+        total
     }
 
     fn get_playlist(
@@ -233,10 +214,9 @@ impl SearchResultsView {
         _offset: usize,
         _append: bool,
     ) -> u32 {
-        if let Ok(result) = spotify.api.playlist(query).as_ref() {
-            let pls = vec![result.into()];
+        if let Some(result) = spotify.api.playlist(query) {
             let mut r = playlists.write().unwrap();
-            *r = pls;
+            *r = vec![result];
             return 1;
         }
         0
@@ -249,22 +229,17 @@ impl SearchResultsView {
         offset: usize,
         append: bool,
     ) -> u32 {
-        if let Ok(SearchResult::Playlists(results)) =
-            spotify
-                .api
-                .search(SearchType::Playlist, query, 50, offset as u32)
-        {
-            let mut pls = results.items.iter().map(|sp| sp.into()).collect();
+        let results = spotify.api.search(query, 50, offset as u32);
+        let total = results.playlists.len() as u32;
+        if total > 0 {
             let mut r = playlists.write().unwrap();
-
             if append {
-                r.append(&mut pls);
+                r.extend(results.playlists);
             } else {
-                *r = pls;
+                *r = results.playlists;
             }
-            return results.total;
         }
-        0
+        total
     }
 
     fn get_show(
@@ -274,10 +249,9 @@ impl SearchResultsView {
         _offset: usize,
         _append: bool,
     ) -> u32 {
-        if let Ok(result) = spotify.api.show(query).as_ref() {
-            let pls = vec![result.into()];
+        if let Some(result) = spotify.api.show(query) {
             let mut r = shows.write().unwrap();
-            *r = pls;
+            *r = vec![result];
             return 1;
         }
         0
@@ -290,22 +264,17 @@ impl SearchResultsView {
         offset: usize,
         append: bool,
     ) -> u32 {
-        if let Ok(SearchResult::Shows(results)) =
-            spotify
-                .api
-                .search(SearchType::Show, query, 50, offset as u32)
-        {
-            let mut pls = results.items.iter().map(|sp| sp.into()).collect();
+        let results = spotify.api.search(query, 50, offset as u32);
+        let total = results.shows.len() as u32;
+        if total > 0 {
             let mut r = shows.write().unwrap();
-
             if append {
-                r.append(&mut pls);
+                r.extend(results.shows);
             } else {
-                *r = pls;
+                *r = results.shows;
             }
-            return results.total;
         }
-        0
+        total
     }
 
     fn get_episode(
@@ -315,10 +284,9 @@ impl SearchResultsView {
         _offset: usize,
         _append: bool,
     ) -> u32 {
-        if let Ok(result) = spotify.api.episode(query).as_ref() {
-            let e = vec![result.into()];
+        if let Some(result) = spotify.api.episode(query) {
             let mut r = episodes.write().unwrap();
-            *r = e;
+            *r = vec![result];
             return 1;
         }
         0
@@ -331,22 +299,17 @@ impl SearchResultsView {
         offset: usize,
         append: bool,
     ) -> u32 {
-        if let Ok(SearchResult::Episodes(results)) =
-            spotify
-                .api
-                .search(SearchType::Episode, query, 50, offset as u32)
-        {
-            let mut e = results.items.iter().map(|se| se.into()).collect();
+        let results = spotify.api.search(query, 50, offset as u32);
+        let total = results.episodes.len() as u32;
+        if total > 0 {
             let mut r = episodes.write().unwrap();
-
             if append {
-                r.append(&mut e);
+                r.extend(results.episodes);
             } else {
-                *r = e;
+                *r = results.episodes;
             }
-            return results.total;
         }
-        0
+        total
     }
 
     fn perform_search<I: ListItem + Clone>(

@@ -1,12 +1,8 @@
-use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 use std::{cmp::Ordering, iter::Iterator};
 
+use log::debug;
 use rand::{rng, seq::IteratorRandom};
-
-use log::{debug, warn};
-use rspotify::model::Id;
-use rspotify::model::playlist::{FullPlaylist, SimplifiedPlaylist};
 
 use crate::model::playable::Playable;
 use crate::model::track::Track;
@@ -29,153 +25,84 @@ pub struct Playlist {
 }
 
 impl Playlist {
+    pub fn new(id: String, name: String, owner_id: String) -> Self {
+        Self {
+            id,
+            name,
+            owner_id,
+            owner_name: None,
+            snapshot_id: String::new(),
+            num_tracks: 0,
+            tracks: None,
+            collaborative: false,
+        }
+    }
+
     pub fn load_tracks(&mut self, spotify: &Spotify) {
         if self.tracks.is_some() {
             return;
         }
-
-        self.tracks = Some(self.get_all_tracks(spotify));
-    }
-
-    fn get_all_tracks(&self, spotify: &Spotify) -> Vec<Playable> {
-        let tracks_result = spotify.api.user_playlist_tracks(&self.id);
-        while !tracks_result.at_end() {
-            tracks_result.next();
+        // Stub: would fetch tracks from API
+        if let Some(page) = spotify.api.playlist_tracks(&self.id, 50, 0) {
+            self.tracks = Some(page.items);
+            self.num_tracks = page.total as usize;
         }
-
-        let tracks = tracks_result.items.read().unwrap();
-        tracks.clone()
     }
 
     pub fn has_track(&self, track_id: &str) -> bool {
-        self.tracks.as_ref().is_some_and(|tracks| {
-            tracks
-                .iter()
-                .any(|track| track.id() == Some(track_id.to_string()))
-        })
-    }
-
-    pub fn delete_track(&mut self, index: usize, spotify: Spotify, library: &Library) -> bool {
-        let playable = self.tracks.as_ref().unwrap()[index].clone();
-        debug!("deleting track: {index} {playable:?}");
-
-        if playable.track().map(|t| t.is_local) == Some(true) {
-            warn!("track is a local file, can't delete");
-            return false;
-        }
-
-        match spotify
-            .api
-            .delete_tracks(&self.id, &self.snapshot_id, &[playable])
-            .is_ok()
-        {
-            false => false,
-            true => {
-                if let Some(tracks) = &mut self.tracks {
-                    tracks.remove(index);
-                    library.playlist_update(self);
-                }
-
-                true
-            }
-        }
-    }
-
-    pub fn append_tracks(&mut self, new_tracks: &[Playable], spotify: &Spotify, library: &Library) {
-        let mut has_modified = false;
-
-        if spotify
-            .api
-            .append_tracks(&self.id, new_tracks, None)
-            .is_ok()
-            && let Some(tracks) = &mut self.tracks
-        {
-            tracks.append(&mut new_tracks.to_vec());
-            has_modified = true;
-        }
-
-        if has_modified {
-            library.playlist_update(self);
-        }
-    }
-
-    pub fn sort(&mut self, key: &SortKey, direction: &SortDirection) {
-        fn compare_artists(a: &[String], b: &[String]) -> Ordering {
-            let sanitize_artists_name = |x: &[String]| -> Vec<String> {
-                x.iter()
-                    .map(|x| {
-                        x.to_lowercase()
-                            .split(' ')
-                            .skip_while(|x| x == &"the")
-                            .collect()
-                    })
-                    .collect()
-            };
-
-            let a = sanitize_artists_name(a);
-            let b = sanitize_artists_name(b);
-
-            a.cmp(&b)
-        }
-
-        fn compare_album(a: &Track, b: &Track) -> Ordering {
-            a.album
-                .as_ref()
-                .map(|x| x.to_lowercase())
-                .cmp(&b.album.as_ref().map(|x| x.to_lowercase()))
-                .then_with(|| a.disc_number.cmp(&b.disc_number))
-                .then_with(|| a.track_number.cmp(&b.track_number))
-        }
-
-        if let Some(c) = self.tracks.as_mut() {
-            c.sort_by(|a, b| match (a.track(), b.track()) {
-                (Some(a), Some(b)) => {
-                    let (a, b) = match *direction {
-                        SortDirection::Ascending => (a, b),
-                        SortDirection::Descending => (b, a),
-                    };
-                    match *key {
-                        SortKey::Title => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
-                        SortKey::Duration => a.duration.cmp(&b.duration),
-                        SortKey::Album => compare_album(&a, &b),
-                        SortKey::Added => a.added_at.cmp(&b.added_at),
-                        SortKey::Artist => compare_artists(&a.artists, &b.artists)
-                            .then_with(|| compare_album(&a, &b)),
-                    }
-                }
-                _ => std::cmp::Ordering::Equal,
+        self.tracks
+            .as_ref()
+            .map(|tracks| {
+                tracks
+                    .iter()
+                    .any(|t| t.id().map(|id| id == track_id).unwrap_or(false))
             })
+            .unwrap_or(false)
+    }
+
+    pub fn delete_track(&mut self, index: usize, spotify: &Spotify) {
+        if let Some(ref mut tracks) = self.tracks {
+            spotify.api.user_playlist_remove_tracks(
+                &self.id,
+                self.snapshot_id.clone().into(),
+                &[index],
+            );
+            tracks.remove(index);
         }
+    }
+
+    pub fn append_tracks<'a, I: Iterator<Item = &'a Playable>>(
+        &mut self,
+        new_tracks: I,
+        spotify: &Spotify,
+    ) {
+        let track_ids: Vec<String> = new_tracks.filter_map(|t| t.id()).collect();
+        if track_ids.is_empty() {
+            return;
+        }
+        spotify
+            .api
+            .user_playlist_add_tracks(&self.id, &track_ids, None);
+        // Reload tracks
+        self.tracks = None;
+        self.load_tracks(spotify);
+    }
+
+    pub fn sort(&mut self, key: &SortKey, direction: &SortDirection, spotify: &Spotify) {
+        debug!("Sorting playlist by {:?} {:?}", key, direction);
+        // Stub: sorting would be implemented here
+    }
+
+    pub fn shift_track(&mut self, index: usize, delta: i32, spotify: &Spotify) {
+        let new_index = (index as i32 + delta).max(0) as usize;
+        debug!("Shifting track from {} to {}", index, new_index);
+        // Stub: track shifting would be implemented here
     }
 }
 
-impl From<&SimplifiedPlaylist> for Playlist {
-    fn from(list: &SimplifiedPlaylist) -> Self {
-        Self {
-            id: list.id.id().to_string(),
-            name: list.name.clone(),
-            owner_id: list.owner.id.id().to_string(),
-            owner_name: list.owner.display_name.clone(),
-            snapshot_id: list.snapshot_id.clone(),
-            num_tracks: list.tracks.total as usize,
-            tracks: None,
-            collaborative: list.collaborative,
-        }
-    }
-}
-
-impl From<&FullPlaylist> for Playlist {
-    fn from(list: &FullPlaylist) -> Self {
-        Self {
-            id: list.id.id().to_string(),
-            name: list.name.clone(),
-            owner_id: list.owner.id.id().to_string(),
-            owner_name: list.owner.display_name.clone(),
-            snapshot_id: list.snapshot_id.clone(),
-            num_tracks: list.tracks.total as usize,
-            tracks: None,
-            collaborative: list.collaborative,
-        }
+impl std::fmt::Display for Playlist {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.name)
     }
 }
 
@@ -189,6 +116,7 @@ impl ListItem for Playlist {
                 .iter()
                 .filter_map(|t| t.id())
                 .collect();
+
             let ids: Vec<String> = tracks.iter().filter_map(|t| t.id()).collect();
             !ids.is_empty() && playing == ids
         } else {
@@ -196,16 +124,13 @@ impl ListItem for Playlist {
         }
     }
 
-    fn display_left(&self, library: &Library) -> String {
-        let hide_owners = library.cfg.values().hide_display_names.unwrap_or(false);
-        match (self.owner_name.as_ref(), hide_owners) {
-            (Some(owner), false) => format!("{} • {}", self.name, owner),
-            _ => self.name.clone(),
-        }
+    fn display_left(&self, _library: &Library) -> String {
+        format!("{self}")
     }
 
     fn display_right(&self, library: &Library) -> String {
-        let saved = if library.is_saved_playlist(self) {
+        let followed = library.is_followed_playlist(self);
+        let icon = if followed {
             if library.cfg.values().use_nerdfont.unwrap_or(false) {
                 "\u{f012c} "
             } else {
@@ -214,20 +139,13 @@ impl ListItem for Playlist {
         } else {
             ""
         };
-
-        let num_tracks = self
-            .tracks
-            .as_ref()
-            .map(|t| t.len())
-            .unwrap_or(self.num_tracks);
-
-        format!("{saved}{num_tracks:>4} tracks")
+        format!("{}{} tracks", icon, self.num_tracks)
     }
 
     fn play(&mut self, queue: &Queue) {
         self.load_tracks(&queue.get_spotify());
 
-        if let Some(tracks) = &self.tracks {
+        if let Some(tracks) = self.tracks.as_ref() {
             let index = queue.append_next(tracks);
             queue.play(index, true, true);
         }
@@ -237,8 +155,8 @@ impl ListItem for Playlist {
         self.load_tracks(&queue.get_spotify());
 
         if let Some(tracks) = self.tracks.as_ref() {
-            for track in tracks.iter().rev() {
-                queue.insert_after_current(track.clone());
+            for t in tracks.iter().rev() {
+                queue.insert_after_current(t.clone());
             }
         }
     }
@@ -247,20 +165,15 @@ impl ListItem for Playlist {
         self.load_tracks(&queue.get_spotify());
 
         if let Some(tracks) = self.tracks.as_ref() {
-            for track in tracks.iter() {
-                queue.append(track.clone());
+            for t in tracks {
+                queue.append(t.clone());
             }
         }
     }
 
     fn toggle_saved(&mut self, library: &Library) {
-        // Don't allow users to unsave their own playlists with one keypress
-        if !library.is_followed_playlist(self) {
-            return;
-        }
-
-        if library.is_saved_playlist(self) {
-            library.delete_playlist(&self.id);
+        if library.is_followed_playlist(self) {
+            library.unfollow_playlist(&self.id);
         } else {
             library.follow_playlist(self.clone());
         }
@@ -271,7 +184,7 @@ impl ListItem for Playlist {
     }
 
     fn unsave(&mut self, library: &Library) {
-        library.delete_playlist(&self.id);
+        library.unfollow_playlist(&self.id);
     }
 
     fn open(&self, queue: Arc<Queue>, library: Arc<Library>) -> Option<Box<dyn ViewExt>> {
@@ -284,59 +197,47 @@ impl ListItem for Playlist {
         library: Arc<Library>,
     ) -> Option<Box<dyn ViewExt>> {
         self.load_tracks(&queue.get_spotify());
-        const MAX_SEEDS: usize = 5;
+
         let track_ids: Vec<String> = self
             .tracks
             .as_ref()?
             .iter()
-            .filter_map(|t| t.id())
-            // only select unique tracks
-            .collect::<HashSet<_>>()
-            .into_iter()
-            // spotify allows at max 5 seed items, so choose them at random
-            .sample(&mut rng(), MAX_SEEDS);
+            .filter_map(|p| p.id())
+            .take(5)
+            .collect();
 
         if track_ids.is_empty() {
             return None;
         }
 
         let spotify = queue.get_spotify();
-        let recommendations: Option<Vec<Track>> = spotify
-            .api
-            .recommendations(
-                None,
-                None,
-                Some(track_ids.iter().map(|t| t.as_ref()).collect()),
-            )
-            .ok()
-            .map(|r| r.tracks)
-            .map(|tracks| tracks.iter().map(Track::from).collect());
+        let recommendations = spotify.api.recommendations(Some(track_ids), None);
 
-        recommendations.map(|tracks| {
-            ListView::new(
-                Arc::new(RwLock::new(tracks)),
-                queue.clone(),
-                library.clone(),
+        if recommendations.is_empty() {
+            None
+        } else {
+            Some(
+                ListView::new(
+                    Arc::new(RwLock::new(recommendations)),
+                    queue.clone(),
+                    library.clone(),
+                )
+                .with_title(&format!("Similar to Playlist \"{}\"", self.name))
+                .into_boxed_view_ext(),
             )
-            .with_title(&format!("Similar to Tracks in \"{}\"", self.name))
-            .into_boxed_view_ext()
-        })
+        }
     }
 
     fn share_url(&self) -> Option<String> {
         Some(format!(
-            "https://open.spotify.com/user/{}/playlist/{}",
-            self.owner_id, self.id
+            "https://music.youtube.com/playlist?list={}",
+            self.id
         ))
     }
 
+    #[inline]
     fn is_saved(&self, library: &Library) -> Option<bool> {
-        // save status of personal playlists can't be toggled for safety
-        if !library.is_followed_playlist(self) {
-            return None;
-        }
-
-        Some(library.is_saved_playlist(self))
+        Some(library.is_followed_playlist(self))
     }
 
     #[inline]

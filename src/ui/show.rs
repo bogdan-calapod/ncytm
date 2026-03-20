@@ -1,7 +1,7 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-use cursive::Cursive;
 use cursive::view::ViewWrapper;
+use cursive::Cursive;
 
 use crate::command::Command;
 use crate::commands::CommandResult;
@@ -23,11 +23,9 @@ impl ShowView {
         let show = show.clone();
 
         let list = {
-            let results = spotify.api.show_episodes(&show.id);
-            let view = ListView::new(results.items.clone(), queue, library);
-            results.apply_pagination(view.get_pagination());
-
-            view
+            let results = spotify.api.show_episodes(&show.id, 0);
+            let episodes = Arc::new(RwLock::new(results.items));
+            ListView::new(episodes, queue, library)
         };
 
         Self { list, show }

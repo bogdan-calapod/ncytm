@@ -7,18 +7,15 @@ use crate::{
     ui::listview::ListView,
 };
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct Category {
     pub id: String,
     pub name: String,
 }
 
-impl From<&rspotify::model::Category> for Category {
-    fn from(c: &rspotify::model::Category) -> Self {
-        Self {
-            id: c.id.clone(),
-            name: c.name.clone(),
-        }
+impl Category {
+    pub fn new(id: String, name: String) -> Self {
+        Self { id, name }
     }
 }
 
@@ -32,34 +29,33 @@ impl ListItem for Category {
     }
 
     fn display_right(&self, _library: &Library) -> String {
-        "".to_string()
+        String::new()
     }
 
     fn play(&mut self, _queue: &Queue) {}
-
     fn play_next(&mut self, _queue: &Queue) {}
-
     fn queue(&mut self, _queue: &Queue) {}
-
     fn toggle_saved(&mut self, _library: &Library) {}
-
     fn save(&mut self, _library: &Library) {}
-
     fn unsave(&mut self, _library: &Library) {}
 
     fn open(
         &self,
-        queue: Arc<crate::queue::Queue>,
-        library: Arc<crate::library::Library>,
+        queue: Arc<Queue>,
+        library: Arc<Library>,
     ) -> Option<Box<dyn crate::traits::ViewExt>> {
-        let playlists = queue.get_spotify().api.category_playlists(&self.id);
-        let view = ListView::new(playlists.items.clone(), queue, library).with_title(&self.name);
-        playlists.apply_pagination(view.get_pagination());
+        let playlists = queue.get_spotify().api.category_playlists(&self.id, 0);
+        let view = ListView::new(
+            Arc::new(std::sync::RwLock::new(playlists.items)),
+            queue,
+            library,
+        )
+        .with_title(&self.name);
         Some(view.into_boxed_view_ext())
     }
 
     fn share_url(&self) -> Option<String> {
-        Some(format!("https://open.spotify.com/genre/{}", self.id))
+        Some(format!("https://music.youtube.com/browse/{}", self.id))
     }
 
     fn as_listitem(&self) -> Box<dyn ListItem> {

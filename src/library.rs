@@ -6,7 +6,6 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 
 use log::{debug, error, info};
-use rspotify::model::Id;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -70,8 +69,8 @@ impl Library {
     }
 
     pub fn new(ev: EventManager, spotify: Spotify, cfg: Arc<Config>) -> Self {
-        let current_user = spotify.api.current_user().ok();
-        let user_id = current_user.as_ref().map(|u| u.id.id().to_string());
+        let current_user = spotify.api.current_user();
+        let user_id = current_user.as_ref().map(|u| u.id.clone());
         let display_name = current_user.as_ref().and_then(|u| u.display_name.clone());
 
         let library = Self {
@@ -304,7 +303,7 @@ impl Library {
         let mut shows_result = self.spotify.api.get_saved_shows(0).ok();
 
         while let Some(shows) = shows_result {
-            saved_shows.extend(shows.items.iter().map(|show| (&show.show).into()));
+            saved_shows.extend(shows.items.iter().map(|show| show.show.clone()));
 
             // load next batch if necessary
             shows_result = match shows.next {
@@ -381,11 +380,11 @@ impl Library {
     /// Fetch the artists from the web API and save them to the local library.
     fn fetch_artists(&self) {
         let mut artists: Vec<Artist> = Vec::new();
-        let mut last: Option<&str> = None;
+        let mut last: Option<String> = None;
         let mut i = 0u32;
 
         loop {
-            let page = self.spotify.api.current_user_followed_artists(last);
+            let page = self.spotify.api.current_user_followed_artists(last.as_deref());
             debug!("artists page: {i}");
             i += 1;
             if page.is_err() {
@@ -394,10 +393,10 @@ impl Library {
             }
             let page = page.unwrap();
 
-            artists.extend(page.items.iter().map(|fa| fa.into()));
+            artists.extend(page.items.clone());
 
             if page.next.is_some() {
-                last = artists.last().unwrap().id.as_deref();
+                last = artists.last().and_then(|a| a.id.clone());
             } else {
                 break;
             }
@@ -886,6 +885,27 @@ impl Library {
         );
     }
 
+    /// Remove a playlist from the user's library by unfollowing it.
+    pub fn unfollow_playlist(&self, playlist_id: &str) {
+        if !*self.is_done.read().unwrap() {
+            return;
+        }
+
+        if !self.spotify.api.user_playlist_unfollow_playlist(playlist_id) {
+            return;
+        }
+
+        {
+            let mut store = self.playlists.write().unwrap();
+            store.retain(|p| p.id != playlist_id);
+        }
+
+        self.save_cache(
+            &config::cache_path(CACHE_PLAYLISTS),
+            &self.playlists.read().unwrap(),
+        );
+    }
+
     /// Check whether `show` is already in the user's library.
     pub fn is_saved_show(&self, show: &Show) -> bool {
         if !*self.is_done.read().unwrap() {
@@ -922,6 +942,21 @@ impl Library {
             let mut store = self.shows.write().unwrap();
             *store = store.iter().filter(|s| s.id != show.id).cloned().collect();
         }
+    }
+
+    /// Check if the user follows a show.
+    pub fn is_followed_show(&self, show: &Show) -> bool {
+        self.is_saved_show(show)
+    }
+
+    /// Follow a show (same as saving).
+    pub fn follow_show(&self, show: &Show) {
+        self.save_show(show)
+    }
+
+    /// Unfollow a show (same as unsaving).
+    pub fn unfollow_show(&self, show: &Show) {
+        self.unsave_show(show)
     }
 
     /// Force redraw the user interface.

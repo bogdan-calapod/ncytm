@@ -5,12 +5,10 @@ use crate::queue::Queue;
 use crate::spotify::Spotify;
 use crate::traits::{IntoBoxedViewExt, ListItem, ViewExt};
 use crate::ui::show::ShowView;
-use rspotify::model::Id;
-use rspotify::model::show::{FullShow, SimplifiedShow};
 use std::fmt;
 use std::sync::Arc;
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct Show {
     pub id: String,
     pub uri: String,
@@ -22,52 +20,30 @@ pub struct Show {
 }
 
 impl Show {
+    pub fn new(id: String, name: String, publisher: String) -> Self {
+        Self {
+            id: id.clone(),
+            uri: format!("youtube:show:{}", id),
+            name,
+            publisher,
+            description: String::new(),
+            cover_url: None,
+            episodes: None,
+        }
+    }
+
     pub fn load_all_episodes(&mut self, spotify: Spotify) {
         if self.episodes.is_some() {
             return;
         }
-
-        let episodes_result = spotify.api.show_episodes(&self.id);
-        while !episodes_result.at_end() {
-            episodes_result.next();
-        }
-
-        let episodes = episodes_result.items.read().unwrap().clone();
-        self.episodes = Some(episodes);
-    }
-}
-
-impl From<&SimplifiedShow> for Show {
-    fn from(show: &SimplifiedShow) -> Self {
-        Self {
-            id: show.id.id().to_string(),
-            uri: show.id.uri(),
-            name: show.name.clone(),
-            publisher: show.publisher.clone(),
-            description: show.description.clone(),
-            cover_url: show.images.first().map(|i| i.url.clone()),
-            episodes: None,
-        }
-    }
-}
-
-impl From<&FullShow> for Show {
-    fn from(show: &FullShow) -> Self {
-        Self {
-            id: show.id.id().to_string(),
-            uri: show.id.uri(),
-            name: show.name.clone(),
-            publisher: show.publisher.clone(),
-            description: show.description.clone(),
-            cover_url: show.images.first().map(|i| i.url.clone()),
-            episodes: None,
-        }
+        let page = spotify.api.show_episodes(&self.id, 0);
+        self.episodes = Some(page.items);
     }
 }
 
 impl fmt::Display for Show {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} - {}", self.publisher, self.name)
+        write!(f, "{}", self.name)
     }
 }
 
@@ -81,31 +57,28 @@ impl ListItem for Show {
     }
 
     fn display_right(&self, library: &Library) -> String {
-        let saved = if library.is_saved_show(self) {
+        if library.is_followed_show(self) {
             if library.cfg.values().use_nerdfont.unwrap_or(false) {
-                "\u{f012c} "
+                "\u{f012c}".to_string()
             } else {
-                "✓ "
+                "✓".to_string()
             }
         } else {
-            ""
-        };
-        saved.to_owned()
+            String::new()
+        }
     }
 
     fn play(&mut self, queue: &Queue) {
         self.load_all_episodes(queue.get_spotify());
 
-        let playables = self
-            .episodes
-            .as_ref()
-            .unwrap_or(&Vec::new())
-            .iter()
-            .map(|ep| Playable::Episode(ep.clone()))
-            .collect();
-
-        let index = queue.append_next(&playables);
-        queue.play(index, true, true);
+        if let Some(episodes) = self.episodes.as_ref() {
+            let tracks: Vec<Playable> = episodes
+                .iter()
+                .map(|ep| Playable::Episode(ep.clone()))
+                .collect();
+            let index = queue.append_next(&tracks);
+            queue.play(index, true, false);
+        }
     }
 
     fn play_next(&mut self, queue: &Queue) {
@@ -121,25 +94,27 @@ impl ListItem for Show {
     fn queue(&mut self, queue: &Queue) {
         self.load_all_episodes(queue.get_spotify());
 
-        for ep in self.episodes.as_ref().unwrap_or(&Vec::new()) {
-            queue.append(Playable::Episode(ep.clone()));
+        if let Some(episodes) = self.episodes.as_ref() {
+            for ep in episodes {
+                queue.append(Playable::Episode(ep.clone()));
+            }
         }
     }
 
     fn toggle_saved(&mut self, library: &Library) {
-        if library.is_saved_show(self) {
-            self.unsave(library);
+        if library.is_followed_show(self) {
+            library.unfollow_show(self);
         } else {
-            self.save(library);
+            library.follow_show(self);
         }
     }
 
     fn save(&mut self, library: &Library) {
-        library.save_show(self);
+        library.follow_show(self);
     }
 
     fn unsave(&mut self, library: &Library) {
-        library.unsave_show(self);
+        library.unfollow_show(self);
     }
 
     fn open(&self, queue: Arc<Queue>, library: Arc<Library>) -> Option<Box<dyn ViewExt>> {
@@ -147,12 +122,12 @@ impl ListItem for Show {
     }
 
     fn share_url(&self) -> Option<String> {
-        Some(format!("https://open.spotify.com/show/{}", self.id))
+        Some(format!("https://music.youtube.com/channel/{}", self.id))
     }
 
     #[inline]
     fn is_saved(&self, library: &Library) -> Option<bool> {
-        Some(library.is_saved_show(self))
+        Some(library.is_followed_show(self))
     }
 
     #[inline]

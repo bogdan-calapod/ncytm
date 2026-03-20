@@ -78,8 +78,8 @@ impl ContextMenu {
 
                 already_added_dialog.add_button("Add anyway", move |c| {
                     let mut playlist = playlist.clone();
-
-                    playlist.append_tracks(&[Playable::Track(track.clone())], &spotify, &library);
+                    let tracks = vec![Playable::Track(track.clone())];
+                    playlist.append_tracks(tracks.iter(), &spotify);
                     c.pop_layer();
 
                     // Close add_track_dialog too
@@ -89,7 +89,8 @@ impl ContextMenu {
                 let modal = Modal::new(already_added_dialog);
                 s.add_layer(modal);
             } else {
-                playlist.append_tracks(&[Playable::Track(track)], &spotify, &library);
+                let tracks = vec![Playable::Track(track)];
+                playlist.append_tracks(tracks.iter(), &spotify);
                 s.pop_layer();
             }
         });

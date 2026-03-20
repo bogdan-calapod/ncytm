@@ -139,9 +139,7 @@ impl MprisPlayer {
                     self.spotify
                         .api
                         .track(&track.id.unwrap_or_default())
-                        .as_ref()
-                        .map(|t| Playable::Track(t.into()))
-                        .ok()
+                        .map(Playable::Track)
                 }
             }
             Playable::Episode(episode) => Some(Playable::Episode(episode)),
@@ -393,29 +391,28 @@ impl MprisPlayer {
         let uri_type = spotify_url.map(|s| s.uri_type);
         match uri_type {
             Some(UriType::Album) => {
-                if let Ok(a) = self.spotify.api.album(&id)
-                    && let Some(t) = &Album::from(&a).tracks
-                {
-                    let should_shuffle = self.queue.get_shuffle();
-                    self.queue.clear();
-                    let index = self.queue.append_next(
-                        &t.iter()
-                            .map(|track| Playable::Track(track.clone()))
-                            .collect(),
-                    );
-                    self.queue.play(index, should_shuffle, should_shuffle)
+                if let Ok(album) = self.spotify.api.album(&id) {
+                    if let Some(t) = &album.tracks {
+                        let should_shuffle = self.queue.get_shuffle();
+                        self.queue.clear();
+                        let index = self.queue.append_next(
+                            &t.iter()
+                                .map(|track| Playable::Track(track.clone()))
+                                .collect(),
+                        );
+                        self.queue.play(index, should_shuffle, should_shuffle)
+                    }
                 }
             }
             Some(UriType::Track) => {
-                if let Ok(t) = self.spotify.api.track(&id) {
+                if let Some(t) = self.spotify.api.track(&id) {
                     self.queue.clear();
-                    self.queue.append(Playable::Track(Track::from(&t)));
+                    self.queue.append(Playable::Track(t));
                     self.queue.play(0, false, false)
                 }
             }
             Some(UriType::Playlist) => {
-                if let Ok(p) = self.spotify.api.playlist(&id) {
-                    let mut playlist = Playlist::from(&p);
+                if let Some(mut playlist) = self.spotify.api.playlist(&id) {
                     playlist.load_tracks(&self.spotify);
                     if let Some(tracks) = &playlist.tracks {
                         let should_shuffle = self.queue.get_shuffle();
@@ -426,14 +423,13 @@ impl MprisPlayer {
                 }
             }
             Some(UriType::Show) => {
-                if let Ok(s) = self.spotify.api.show(&id) {
-                    let mut show: Show = (&s).into();
+                if let Some(mut show) = self.spotify.api.show(&id) {
                     let spotify = self.spotify.clone();
                     show.load_all_episodes(spotify);
                     if let Some(e) = &show.episodes {
                         let should_shuffle = self.queue.get_shuffle();
                         self.queue.clear();
-                        let mut ep = e.clone();
+                        let mut ep: Vec<Episode> = e.clone();
                         ep.reverse();
                         let index = self.queue.append_next(
                             &ep.iter()
@@ -445,18 +441,20 @@ impl MprisPlayer {
                 }
             }
             Some(UriType::Episode) => {
-                if let Ok(e) = self.spotify.api.episode(&id) {
+                if let Some(e) = self.spotify.api.episode(&id) {
                     self.queue.clear();
-                    self.queue.append(Playable::Episode(Episode::from(&e)));
+                    self.queue.append(Playable::Episode(e));
                     self.queue.play(0, false, false)
                 }
             }
             Some(UriType::Artist) => {
-                if let Ok(a) = self.spotify.api.artist_top_tracks(&id) {
+                let tracks = self.spotify.api.artist_top_tracks(&id);
+                if !tracks.is_empty() {
                     let should_shuffle = self.queue.get_shuffle();
                     self.queue.clear();
                     let index = self.queue.append_next(
-                        &a.iter()
+                        &tracks
+                            .iter()
                             .map(|track| Playable::Track(track.clone()))
                             .collect(),
                     );

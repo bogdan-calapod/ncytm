@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use cursive::Cursive;
 use cursive::view::ViewWrapper;
+use cursive::Cursive;
 
 use crate::command::Command;
 use crate::commands::CommandResult;
@@ -19,8 +19,8 @@ pub struct BrowseView {
 impl BrowseView {
     pub fn new(queue: Arc<Queue>, library: Arc<Library>) -> Self {
         let categories = queue.get_spotify().api.categories();
-        let list = ListView::new(categories.items.clone(), queue, library);
-        categories.apply_pagination(list.get_pagination());
+        let list = ListView::new(categories.items.clone(), queue.clone(), library.clone());
+        categories.apply_pagination(&list.get_pagination());
 
         Self { list }
     }
