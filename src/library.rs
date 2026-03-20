@@ -8,6 +8,7 @@ use std::thread;
 use log::{debug, error, info};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use tokio::runtime::Runtime;
 
 use crate::config::Config;
 use crate::config::{self, CACHE_VERSION};
@@ -19,6 +20,13 @@ use crate::model::playlist::Playlist;
 use crate::model::show::Show;
 use crate::model::track::Track;
 use crate::spotify::Spotify;
+use crate::youtube_music::{
+    YouTubeMusicClient,
+    api::{
+        get_liked_songs, get_library_playlists, get_library_albums,
+        LibraryTrack, LibraryPlaylist, LibraryAlbum,
+    },
+};
 
 /// Cached tracks database filename.
 const CACHE_TRACKS: &str = "tracks.db";
@@ -33,7 +41,7 @@ const CACHE_ARTISTS: &str = "artists.db";
 const CACHE_PLAYLISTS: &str = "playlists.db";
 
 /// The user library with all their saved tracks, albums, playlists... High level interface to the
-/// Spotify API used to manage items in the user library.
+/// YouTube Music API used to manage items in the user library.
 #[derive(Clone)]
 pub struct Library {
     pub tracks: Arc<RwLock<Vec<Track>>>,
@@ -46,6 +54,8 @@ pub struct Library {
     pub display_name: Option<String>,
     ev: EventManager,
     spotify: Spotify,
+    /// YouTube Music API client for fetching library data.
+    yt_client: Option<YouTubeMusicClient>,
     pub cfg: Arc<Config>,
 }
 
@@ -64,10 +74,38 @@ impl Library {
             display_name: None,
             ev,
             spotify,
+            yt_client: None,
             cfg,
         })
     }
 
+    /// Create a new library with YouTube Music client.
+    pub fn new_with_client(
+        ev: EventManager,
+        spotify: Spotify,
+        yt_client: YouTubeMusicClient,
+        cfg: Arc<Config>,
+    ) -> Self {
+        let library = Self {
+            tracks: Arc::new(RwLock::new(Vec::new())),
+            albums: Arc::new(RwLock::new(Vec::new())),
+            artists: Arc::new(RwLock::new(Vec::new())),
+            playlists: Arc::new(RwLock::new(Vec::new())),
+            shows: Arc::new(RwLock::new(Vec::new())),
+            is_done: Arc::new(RwLock::new(false)),
+            user_id: None,
+            display_name: None,
+            ev,
+            spotify,
+            yt_client: Some(yt_client),
+            cfg,
+        };
+
+        library.update_library();
+        library
+    }
+
+    /// Create a new library (legacy constructor for backward compatibility).
     pub fn new(ev: EventManager, spotify: Spotify, cfg: Arc<Config>) -> Self {
         let current_user = spotify.api.current_user();
         let user_id = current_user.as_ref().map(|u| u.id.clone());
@@ -84,6 +122,7 @@ impl Library {
             display_name,
             ev,
             spotify,
+            yt_client: None,
             cfg,
         };
 
@@ -321,60 +360,160 @@ impl Library {
         *self.shows.write().unwrap() = saved_shows;
     }
 
-    /// Fetch the playlists from the web API and save them to the local library. This synchronizes
+    /// Fetch the playlists from YouTube Music and save them to the local library. This synchronizes
     /// the local version with the remote, pruning removed playlists in the process.
     fn fetch_playlists(&self) {
         debug!("loading playlists");
-        let mut stale_lists = self.playlists.read().unwrap().clone();
-        let mut list_order = Vec::new();
 
-        let lists_page = self.spotify.api.current_user_playlist();
-        let mut lists_batch = Some(lists_page.items.read().unwrap().clone());
-        while let Some(lists) = lists_batch {
-            for (index, remote) in lists.iter().enumerate() {
-                list_order.push(remote.id.clone());
-
-                // remove from stale playlists so we won't prune it later on
-                if let Some(index) = stale_lists.iter().position(|x| x.id == remote.id) {
-                    stale_lists.remove(index);
+        // Use YouTube Music client if available
+        if let Some(ref client) = self.yt_client {
+            let runtime = match Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    error!("Failed to create runtime for fetching playlists: {}", e);
+                    return;
                 }
+            };
 
-                if self.needs_download(remote) {
-                    info!("updating playlist {} (index: {})", remote.name, index);
-                    let mut playlist: Playlist = remote.clone();
-                    playlist.tracks = None;
-                    playlist.load_tracks(&self.spotify);
-                    self.append_or_update(playlist);
-                    // trigger redraw
-                    self.trigger_redraw();
+            let mut stale_lists = self.playlists.read().unwrap().clone();
+            let mut list_order = Vec::new();
+            let mut continuation: Option<String> = None;
+            let mut page_num = 0u32;
+
+            loop {
+                debug!("playlists page: {}", page_num);
+                page_num += 1;
+
+                let result = runtime.block_on(get_library_playlists(client, continuation.as_deref()));
+
+                match result {
+                    Ok(response) => {
+                        for lib_playlist in response.items.iter() {
+                            let playlist = Self::library_playlist_to_playlist(lib_playlist);
+                            list_order.push(playlist.id.clone());
+
+                            // Remove from stale playlists so we won't prune it later
+                            if let Some(index) = stale_lists.iter().position(|x| x.id == playlist.id) {
+                                stale_lists.remove(index);
+                            }
+
+                            // Update or add the playlist
+                            self.append_or_update(playlist);
+                        }
+
+                        // Check for more pages
+                        if let Some(token) = response.continuation {
+                            continuation = Some(token);
+                        } else {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to fetch playlists: {:?}", e);
+                        break;
+                    }
                 }
             }
-            lists_batch = lists_page.next();
-        }
 
-        // remove stale playlists
-        for stale in stale_lists {
-            let index = self
-                .playlists
-                .read()
-                .unwrap()
-                .iter()
-                .position(|x| x.id == stale.id);
-            if let Some(index) = index {
-                debug!("removing stale list: {:?}", stale.name);
-                self.playlists.write().unwrap().remove(index);
+            // Remove stale playlists
+            for stale in stale_lists {
+                let index = self
+                    .playlists
+                    .read()
+                    .unwrap()
+                    .iter()
+                    .position(|x| x.id == stale.id);
+                if let Some(index) = index {
+                    debug!("removing stale list: {:?}", stale.name);
+                    self.playlists.write().unwrap().remove(index);
+                }
             }
+
+            // Sort by remote order
+            self.playlists.write().unwrap().sort_by(|a, b| {
+                let a_index = list_order.iter().position(|x| x == &a.id);
+                let b_index = list_order.iter().position(|x| x == &b.id);
+                a_index.cmp(&b_index)
+            });
+
+            info!("Loaded {} playlists", self.playlists.read().unwrap().len());
+            self.trigger_redraw();
+        } else {
+            // Fallback to stub API (returns empty)
+            debug!("No YouTube Music client, using stub API");
+            let mut stale_lists = self.playlists.read().unwrap().clone();
+            let mut list_order = Vec::new();
+
+            let lists_page = self.spotify.api.current_user_playlist();
+            let mut lists_batch = Some(lists_page.items.read().unwrap().clone());
+            while let Some(lists) = lists_batch {
+                for (index, remote) in lists.iter().enumerate() {
+                    list_order.push(remote.id.clone());
+
+                    // remove from stale playlists so we won't prune it later on
+                    if let Some(index) = stale_lists.iter().position(|x| x.id == remote.id) {
+                        stale_lists.remove(index);
+                    }
+
+                    if self.needs_download(remote) {
+                        info!("updating playlist {} (index: {})", remote.name, index);
+                        let mut playlist: Playlist = remote.clone();
+                        playlist.tracks = None;
+                        playlist.load_tracks(&self.spotify);
+                        self.append_or_update(playlist);
+                        // trigger redraw
+                        self.trigger_redraw();
+                    }
+                }
+                lists_batch = lists_page.next();
+            }
+
+            // remove stale playlists
+            for stale in stale_lists {
+                let index = self
+                    .playlists
+                    .read()
+                    .unwrap()
+                    .iter()
+                    .position(|x| x.id == stale.id);
+                if let Some(index) = index {
+                    debug!("removing stale list: {:?}", stale.name);
+                    self.playlists.write().unwrap().remove(index);
+                }
+            }
+
+            // sort by remote order
+            self.playlists.write().unwrap().sort_by(|a, b| {
+                let a_index = list_order.iter().position(|x| x == &a.id);
+                let b_index = list_order.iter().position(|x| x == &b.id);
+                a_index.cmp(&b_index)
+            });
+
+            // trigger redraw
+            self.trigger_redraw();
         }
+    }
 
-        // sort by remote order
-        self.playlists.write().unwrap().sort_by(|a, b| {
-            let a_index = list_order.iter().position(|x| x == &a.id);
-            let b_index = list_order.iter().position(|x| x == &b.id);
-            a_index.cmp(&b_index)
-        });
+    /// Convert a LibraryPlaylist from the API to our Playlist model.
+    fn library_playlist_to_playlist(lib_playlist: &LibraryPlaylist) -> Playlist {
+        // Parse track count from string like "50 songs"
+        let num_tracks = lib_playlist
+            .track_count
+            .as_ref()
+            .and_then(|s| s.split_whitespace().next())
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0);
 
-        // trigger redraw
-        self.trigger_redraw();
+        Playlist {
+            id: lib_playlist.playlist_id.clone(),
+            name: lib_playlist.title.clone(),
+            owner_id: String::new(), // YouTube Music doesn't expose owner ID in library response
+            owner_name: None,
+            num_tracks,
+            tracks: None,
+            thumbnail_url: lib_playlist.thumbnail_url.clone(),
+            description: None,
+        }
     }
 
     /// Fetch the artists from the web API and save them to the local library.
@@ -432,94 +571,233 @@ impl Library {
         }
     }
 
-    /// Fetch the albums from the web API and store them in the local library.
+    /// Fetch the albums from YouTube Music and store them in the local library.
     fn fetch_albums(&self) {
-        let mut albums: Vec<Album> = Vec::new();
-        let mut i = 0u32;
+        debug!("loading albums");
 
-        loop {
-            let page = self
-                .spotify
-                .api
-                .current_user_saved_albums(albums.len() as u32);
-            debug!("albums page: {i}");
-
-            i += 1;
-
-            if page.is_err() {
-                error!("Failed to fetch albums.");
-                return;
-            }
-
-            let page = page.unwrap();
-            albums.extend(page.items.iter().map(|a| a.into()));
-
-            if page.next.is_none() {
-                break;
-            }
-        }
-
-        albums.sort_unstable_by_key(|album| {
-            let album_artist = album.artists[0]
-                .strip_prefix("The ")
-                .unwrap_or(&album.artists[0]);
-            let album_title = album.title.strip_prefix("The ").unwrap_or(&album.title);
-            format!(
-                "{}{}{}",
-                album_artist.to_lowercase(),
-                album.year,
-                album_title.to_lowercase()
-            )
-        });
-
-        *self.albums.write().unwrap() = albums;
-    }
-
-    /// Fetch the tracks from the web API and save them in the local library.
-    fn fetch_tracks(&self) {
-        let mut tracks = Vec::new();
-        let mut i = 0u32;
-
-        loop {
-            let page = self
-                .spotify
-                .api
-                .current_user_saved_tracks(tracks.len() as u32);
-
-            debug!("tracks page: {i}");
-            i += 1;
-
-            if page.is_err() {
-                error!("Failed to fetch tracks.");
-                return;
-            }
-            let page = page.unwrap();
-
-            if page.offset == 0 {
-                // If first page matches the first items in store and total is
-                // identical, assume list is unchanged.
-
-                let store = self.tracks.read().unwrap();
-
-                if page.total as usize == store.len()
-                    && !page
-                        .items
-                        .iter()
-                        .enumerate()
-                        .any(|(i, t)| t.track.id.as_ref().map(|id| id.to_string()) != store[i].id)
-                {
+        // Use YouTube Music client if available
+        if let Some(ref client) = self.yt_client {
+            let runtime = match Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    error!("Failed to create runtime for fetching albums: {}", e);
                     return;
+                }
+            };
+
+            let mut albums: Vec<Album> = Vec::new();
+            let mut continuation: Option<String> = None;
+            let mut page_num = 0u32;
+
+            loop {
+                debug!("albums page: {}", page_num);
+                page_num += 1;
+
+                let result = runtime.block_on(get_library_albums(client, continuation.as_deref()));
+
+                match result {
+                    Ok(response) => {
+                        // Convert LibraryAlbum to Album
+                        for lib_album in response.items.iter() {
+                            albums.push(Self::library_album_to_album(lib_album));
+                        }
+
+                        // Check for more pages
+                        if let Some(token) = response.continuation {
+                            continuation = Some(token);
+                        } else {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to fetch albums: {:?}", e);
+                        break;
+                    }
                 }
             }
 
-            tracks.extend(page.items.iter().map(|t| t.into()));
+            // Sort albums by artist, year, title
+            albums.sort_unstable_by_key(|album| {
+                let album_artist = album
+                    .artists
+                    .first()
+                    .map(|a| a.strip_prefix("The ").unwrap_or(a))
+                    .unwrap_or("");
+                let album_title = album.title.strip_prefix("The ").unwrap_or(&album.title);
+                format!(
+                    "{}{}{}",
+                    album_artist.to_lowercase(),
+                    album.year,
+                    album_title.to_lowercase()
+                )
+            });
 
-            if page.next.is_none() {
-                break;
+            info!("Loaded {} albums", albums.len());
+            *self.albums.write().unwrap() = albums;
+        } else {
+            // Fallback to stub API (returns empty)
+            debug!("No YouTube Music client, using stub API");
+            let mut albums: Vec<Album> = Vec::new();
+            let mut i = 0u32;
+
+            loop {
+                let page = self
+                    .spotify
+                    .api
+                    .current_user_saved_albums(albums.len() as u32);
+                debug!("albums page: {i}");
+
+                i += 1;
+
+                if page.is_err() {
+                    error!("Failed to fetch albums.");
+                    return;
+                }
+
+                let page = page.unwrap();
+                albums.extend(page.items.iter().map(|a| a.into()));
+
+                if page.next.is_none() {
+                    break;
+                }
             }
-        }
 
-        *self.tracks.write().unwrap() = tracks;
+            albums.sort_unstable_by_key(|album| {
+                let album_artist = album.artists[0]
+                    .strip_prefix("The ")
+                    .unwrap_or(&album.artists[0]);
+                let album_title = album.title.strip_prefix("The ").unwrap_or(&album.title);
+                format!(
+                    "{}{}{}",
+                    album_artist.to_lowercase(),
+                    album.year,
+                    album_title.to_lowercase()
+                )
+            });
+
+            *self.albums.write().unwrap() = albums;
+        }
+    }
+
+    /// Convert a LibraryAlbum from the API to our Album model.
+    fn library_album_to_album(lib_album: &LibraryAlbum) -> Album {
+        Album {
+            id: Some(lib_album.browse_id.clone()),
+            title: lib_album.title.clone(),
+            artists: lib_album.artists.iter().map(|a| a.name.clone()).collect(),
+            artist_ids: lib_album
+                .artists
+                .iter()
+                .filter_map(|a| a.browse_id.clone())
+                .collect(),
+            year: lib_album.year.clone().unwrap_or_default(),
+            cover_url: lib_album.thumbnail_url.clone(),
+            tracks: None,
+            added_at: None,
+            audio_playlist_id: None,
+            is_explicit: lib_album.is_explicit,
+        }
+    }
+
+    /// Fetch the tracks (liked songs) from YouTube Music and save them in the local library.
+    fn fetch_tracks(&self) {
+        debug!("loading tracks (liked songs)");
+
+        // Use YouTube Music client if available
+        if let Some(ref client) = self.yt_client {
+            let runtime = match Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    error!("Failed to create runtime for fetching tracks: {}", e);
+                    return;
+                }
+            };
+
+            let mut tracks = Vec::new();
+            let mut continuation: Option<String> = None;
+            let mut page_num = 0u32;
+
+            loop {
+                debug!("tracks page: {}", page_num);
+                page_num += 1;
+
+                let result = runtime.block_on(get_liked_songs(client, continuation.as_deref()));
+
+                match result {
+                    Ok(response) => {
+                        // Convert LibraryTrack to Track
+                        for (index, lib_track) in response.items.iter().enumerate() {
+                            tracks.push(Self::library_track_to_track(lib_track, tracks.len() + index));
+                        }
+
+                        // Check for more pages
+                        if let Some(token) = response.continuation {
+                            continuation = Some(token);
+                        } else {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to fetch tracks: {:?}", e);
+                        break;
+                    }
+                }
+            }
+
+            info!("Loaded {} liked songs", tracks.len());
+            *self.tracks.write().unwrap() = tracks;
+        } else {
+            // Fallback to stub API (returns empty)
+            debug!("No YouTube Music client, using stub API");
+            let mut tracks = Vec::new();
+            let mut i = 0u32;
+
+            loop {
+                let page = self
+                    .spotify
+                    .api
+                    .current_user_saved_tracks(tracks.len() as u32);
+
+                debug!("tracks page: {i}");
+                i += 1;
+
+                if page.is_err() {
+                    error!("Failed to fetch tracks.");
+                    return;
+                }
+                let page = page.unwrap();
+
+                tracks.extend(page.items.iter().map(|t| t.into()));
+
+                if page.next.is_none() {
+                    break;
+                }
+            }
+
+            *self.tracks.write().unwrap() = tracks;
+        }
+    }
+
+    /// Convert a LibraryTrack from the API to our Track model.
+    fn library_track_to_track(lib_track: &LibraryTrack, index: usize) -> Track {
+        Track {
+            id: Some(lib_track.video_id.clone()),
+            title: lib_track.title.clone(),
+            duration: lib_track.duration_seconds.unwrap_or(0),
+            artists: lib_track.artists.iter().map(|a| a.name.clone()).collect(),
+            artist_ids: lib_track
+                .artists
+                .iter()
+                .filter_map(|a| a.browse_id.clone())
+                .collect(),
+            album: lib_track.album.as_ref().map(|a| a.title.clone()),
+            album_id: lib_track.album.as_ref().and_then(|a| a.browse_id.clone()),
+            cover_url: lib_track.thumbnail_url.clone(),
+            added_at: None,
+            list_index: index,
+            is_explicit: lib_track.is_explicit,
+            set_video_id: lib_track.set_video_id.clone(),
+        }
     }
 
     fn populate_artists(&self) {

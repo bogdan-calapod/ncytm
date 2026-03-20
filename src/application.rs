@@ -18,6 +18,7 @@ use crate::library::Library;
 use crate::queue::Queue;
 use crate::spotify::{PlayerEvent, Spotify};
 use crate::ui::create_cursive;
+use crate::youtube_music::YouTubeMusicClient;
 use crate::{authentication, ui, utils};
 use crate::{command, queue, spotify};
 
@@ -134,9 +135,14 @@ impl Application {
         let mut spotify =
             spotify::Spotify::new(event_manager.clone(), credentials, configuration.clone())?;
 
-        let library = Arc::new(Library::new(
+        // Create YouTube Music client for library operations
+        let yt_client = YouTubeMusicClient::new(auth_result.cookies)
+            .map_err(|e| format!("Failed to create YouTube Music client: {}", e))?;
+
+        let library = Arc::new(Library::new_with_client(
             event_manager.clone(),
             spotify.clone(),
+            yt_client,
             configuration.clone(),
         ));
 
