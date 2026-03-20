@@ -21,6 +21,8 @@ mod ext_traits;
 mod library;
 mod model;
 mod panic;
+mod player;
+mod player_worker;
 mod queue;
 mod serialization;
 mod sharing;
