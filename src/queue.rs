@@ -486,7 +486,7 @@ impl Queue {
 #[cfg(feature = "notify")]
 pub fn send_notification(summary_txt: &str, body_txt: &str, cover_url: Option<String>) {
     let mut n = Notification::new();
-    n.appname("ncspot").summary(summary_txt).body(body_txt);
+    n.appname("ncytm").summary(summary_txt).body(body_txt);
 
     // album cover image
     if let Some(u) = cover_url {
@@ -503,7 +503,7 @@ pub fn send_notification(summary_txt: &str, body_txt: &str, cover_url: Option<St
     #[cfg(all(unix, not(target_os = "macos")))]
     n.urgency(notify_rust::Urgency::Low)
         .hint(notify_rust::Hint::Transient(true))
-        .hint(notify_rust::Hint::DesktopEntry("ncspot".into()));
+        .hint(notify_rust::Hint::DesktopEntry("ncytm".into()));
 
     match n.show() {
         Ok(handle) => {

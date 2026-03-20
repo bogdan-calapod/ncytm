@@ -43,7 +43,7 @@ pub fn setup_logging(filename: &Path) -> Result<(), fern::InitError> {
         // Add blanket level filter -
         .level(log::LevelFilter::Debug)
         // Set runtime log level for modules
-        .level_for("ncspot", log::LevelFilter::Trace)
+        .level_for("ncytm", log::LevelFilter::Trace)
         // Output to stdout, files, and other Dispatch configurations
         .chain(fern::log_file(filename)?)
         // Apply globally
@@ -59,7 +59,7 @@ pub struct UserDataInner {
 /// The global Tokio runtime for running asynchronous tasks.
 pub static ASYNC_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
-/// The representation of an ncspot application.
+/// The representation of an ncytm application.
 pub struct Application {
     /// The music queue which controls playback order.
     queue: Arc<Queue>,
@@ -167,7 +167,7 @@ impl Application {
             Some(
                 ipc::IpcSocket::new(
                     ASYNC_RUNTIME.get().unwrap().handle(),
-                    runtime_directory.join("ncspot.sock"),
+                    runtime_directory.join("ncytm.sock"),
                     event_manager.clone(),
                 )
                 .map_err(|e| e.to_string())?,

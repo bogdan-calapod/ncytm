@@ -24,7 +24,7 @@ impl CursiveExt for cursive::Cursive {
 }
 
 pub trait SelectViewExt {
-    /// Translates ncspot commands (i.e. navigating in lists) to Cursive
+    /// Translates ncytm commands (i.e. navigating in lists) to Cursive
     /// `SelectView` actions.
     fn handle_command(&mut self, cmd: &Command) -> Result<CommandResult, String>;
 }

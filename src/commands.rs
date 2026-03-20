@@ -25,7 +25,7 @@ use cursive::event::{Event, Key};
 use cursive::traits::View;
 use cursive::views::Dialog;
 use log::{debug, error, info};
-use ncspot::CONFIGURATION_FILE_NAME;
+use ncytm::CONFIGURATION_FILE_NAME;
 use std::cell::RefCell;
 
 pub enum CommandResult {

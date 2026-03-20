@@ -8,10 +8,10 @@ use crate::config;
 pub fn register_backtrace_panic_handler() {
     // During most of the program, Cursive is responsible for drawing to the
     // tty. Since stdout probably doesn't work as expected during a panic, the
-    // backtrace is written to a file at $USER_CACHE_DIR/ncspot/backtrace.log.
+    // backtrace is written to a file at $USER_CACHE_DIR/ncytm/backtrace.log.
     std::panic::set_hook(Box::new(|panic_info| {
         // A panic hook will prevent the default panic handler from being
-        // called. An unwrap in this part would cause a hard crash of ncspot.
+        // called. An unwrap in this part would cause a hard crash of ncytm.
         // Don't unwrap/expect/panic in here!
         if let Ok(backtrace_log) = config::try_proj_dirs() {
             let mut path = backtrace_log.cache_dir;

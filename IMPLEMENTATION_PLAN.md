@@ -8,6 +8,7 @@ Direct replacement of Spotify backend with YouTube Music. No abstraction layer -
 - Write tests first, validate them, then implement
 - One commit per logical change
 - Each commit leaves codebase buildable
+- **User validates and commits** - AI prepares changes, shows diff, suggests commit message
 
 ---
 

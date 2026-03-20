@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use cursive::Cursive;
 use cursive::theme::Effect;
 use cursive::utils::markup::StyledString;
 use cursive::view::ViewWrapper;
 use cursive::views::{ScrollView, TextView};
-use ncspot::CONFIGURATION_FILE_NAME;
+use cursive::Cursive;
+use ncytm::CONFIGURATION_FILE_NAME;
 
 use crate::command::{Command, MoveAmount, MoveMode};
 use crate::commands::CommandResult;

@@ -1,5 +1,5 @@
 use cursive::{Cursive, CursiveRunner};
-use ncspot::BIN_NAME;
+use ncytm::BIN_NAME;
 
 pub mod album;
 pub mod artist;

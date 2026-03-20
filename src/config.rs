@@ -6,18 +6,18 @@ use std::{fs, process};
 
 use cursive::theme::Theme;
 use log::{debug, error};
-use ncspot::{CONFIGURATION_FILE_NAME, USER_STATE_FILE_NAME};
+use ncytm::{CONFIGURATION_FILE_NAME, USER_STATE_FILE_NAME};
 use platform_dirs::AppDirs;
 
 use crate::command::{SortDirection, SortKey};
 use crate::model::playable::Playable;
 use crate::queue;
-use crate::serialization::{CBOR, Serializer, TOML};
+use crate::serialization::{Serializer, CBOR, TOML};
 
 pub const CACHE_VERSION: u16 = 1;
 pub const DEFAULT_COMMAND_KEY: char = ':';
 
-/// The playback state when ncspot is started.
+/// The playback state when ncytm is started.
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum PlaybackState {
     Playing,
@@ -26,7 +26,7 @@ pub enum PlaybackState {
     Default,
 }
 
-/// The focussed library tab when ncspot is started.
+/// The focussed library tab when ncytm is started.
 #[derive(Clone, Serialize, Deserialize, Debug, Hash, strum_macros::EnumIter)]
 #[serde(rename_all = "lowercase")]
 pub enum LibraryTab {
@@ -72,7 +72,7 @@ impl NotificationFormat {
     }
 }
 
-/// The configuration of ncspot.
+/// The configuration of ncytm.
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct ConfigValues {
     pub command_key: Option<char>,
@@ -103,7 +103,7 @@ pub struct ConfigValues {
     pub ap_port: Option<u16>,
 }
 
-/// The ncspot theme.
+/// The ncytm theme.
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct ConfigTheme {
     pub background: Option<String>,
@@ -172,7 +172,7 @@ impl Default for UserState {
 /// Configuration files are read/written relative to this directory.
 static BASE_PATH: RwLock<Option<PathBuf>> = RwLock::new(None);
 
-/// The complete configuration (state + user configuration) of ncspot.
+/// The complete configuration (state + user configuration) of ncytm.
 pub struct Config {
     /// The configuration file path.
     filename: String,
@@ -293,7 +293,7 @@ fn load(filename: &str) -> Result<ConfigValues, String> {
     TOML.load_or_generate_default(path, || Ok(ConfigValues::default()), false)
 }
 
-/// Returns the plaform app directories for ncspot if they could be determined,
+/// Returns the platform app directories for ncytm if they could be determined,
 /// or an error otherwise.
 pub fn try_proj_dirs() -> Result<AppDirs, String> {
     match *BASE_PATH
@@ -306,7 +306,7 @@ pub fn try_proj_dirs() -> Result<AppDirs, String> {
             data_dir: basepath.join(".local/share"),
             state_dir: basepath.join(".local/state"),
         }),
-        None => AppDirs::new(Some("ncspot"), true)
+        None => AppDirs::new(Some("ncytm"), true)
             .ok_or_else(|| String::from("Couldn't determine platform standard directories")),
     }
 }

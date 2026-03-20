@@ -51,12 +51,12 @@ impl MprisRoot {
 
     #[zbus(property)]
     fn identity(&self) -> &str {
-        "ncspot"
+        "ncytm"
     }
 
     #[zbus(property)]
     fn supported_uri_schemes(&self) -> Vec<String> {
-        vec!["spotify".to_string()]
+        vec!["youtube".to_string(), "https".to_string()]
     }
 
     #[zbus(property)]
@@ -151,7 +151,7 @@ impl MprisPlayer {
         hm.insert(
             "mpris:trackid".to_string(),
             Value::ObjectPath(ObjectPath::from_string_unchecked(format!(
-                "/org/ncspot/{}",
+                "/org/ncytm/{}",
                 playable
                     .filter(|t| t.id().is_some())
                     .map(|t| t.uri().replace(':', "/"))
@@ -569,7 +569,7 @@ impl MprisManager {
 /// <https://specifications.freedesktop.org/mpris-spec/2.2/#Bus-Name-Policy>
 pub fn instance_bus_name() -> String {
     format!(
-        "org.mpris.MediaPlayer2.ncspot.instance{}",
+        "org.mpris.MediaPlayer2.ncytm.instance{}",
         std::process::id()
     )
 }

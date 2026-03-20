@@ -13,7 +13,7 @@ clap_mangen = "0.2.33"
 clap_complete = "4.6.0"
 clap = "4.6.0"
 
-[dependencies.ncspot]
+[dependencies.ncytm]
 default-features = false
 path = ".."
 

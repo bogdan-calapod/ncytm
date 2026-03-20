@@ -1,8 +1,7 @@
 use clap::builder::PathBufValueParser;
-use librespot_playback::audio_backend;
 
-pub const AUTHOR: &str = "Henrik Friedrichsen <henrik@affekt.org> and contributors";
-pub const BIN_NAME: &str = "ncspot";
+pub const AUTHOR: &str = "ncytm contributors";
+pub const BIN_NAME: &str = "ncytm";
 pub const CONFIGURATION_FILE_NAME: &str = "config.toml";
 pub const USER_STATE_FILE_NAME: &str = "userstate.cbor";
 
@@ -10,15 +9,13 @@ pub const USER_STATE_FILE_NAME: &str = "userstate.cbor";
 /// command can be used to parse the actual arguments passed to the program, or to automatically
 /// generate a man page using clap's mangen package.
 pub fn program_arguments() -> clap::Command {
-    let backends = {
-        let backends: Vec<&str> = audio_backend::BACKENDS.iter().map(|b| b.0).collect();
-        format!("Audio backends: {}", backends.join(", "))
-    };
+    // TODO: Add audio backends info once we have a player implementation
+    let backends = "Audio backends: rodio (planned)";
 
-    clap::Command::new("ncspot")
+    clap::Command::new("ncytm")
         .version(env!("VERSION"))
         .author(AUTHOR)
-        .about("cross-platform ncurses Spotify client")
+        .about("cross-platform ncurses YouTube Music client")
         .after_help(backends)
         .arg(
             clap::Arg::new("debug")

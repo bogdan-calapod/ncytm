@@ -225,9 +225,9 @@ impl Spotify {
         info!("Initializing audio backend {backend_name}");
         if backend_name == "pulseaudio" {
             // TODO: Audit that the environment access only happens in single-threaded code.
-            unsafe { env::set_var("PULSE_PROP_application.name", "ncspot") };
+            unsafe { env::set_var("PULSE_PROP_application.name", "ncytm") };
             // TODO: Audit that the environment access only happens in single-threaded code.
-            unsafe { env::set_var("PULSE_PROP_stream.description", "ncurses Spotify client") };
+            unsafe { env::set_var("PULSE_PROP_stream.description", "ncurses YouTube Music client") };
             // TODO: Audit that the environment access only happens in single-threaded code.
             unsafe { env::set_var("PULSE_PROP_media.role", "music") };
         }
