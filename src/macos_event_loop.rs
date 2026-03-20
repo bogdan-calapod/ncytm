@@ -4,19 +4,13 @@
 //! This module provides the infrastructure to run the app's TUI in a worker thread while
 //! keeping the winit event loop on main.
 
-use std::sync::{Mutex, OnceLock, mpsc};
+use std::sync::mpsc;
 use std::thread;
 
 use log::{debug, warn};
 
-/// Global media control handle for macOS
-pub static MEDIA_HANDLE: OnceLock<MediaControlHandle> = OnceLock::new();
-
-/// Global receiver for media control events
-pub static MEDIA_EVENTS: OnceLock<Mutex<mpsc::Receiver<MediaControlEvent>>> = OnceLock::new();
-
 /// Messages from the app to the media control event loop
-pub enum MediaControlCommand {
+enum MediaControlCommand {
     /// Update metadata (title, artist, album, duration, cover_url)
     SetMetadata {
         title: Option<String>,
@@ -27,16 +21,12 @@ pub enum MediaControlCommand {
     },
     /// Update playback state
     SetPlayback(PlaybackState),
-    /// Shutdown the event loop
-    Shutdown,
 }
 
 /// Playback state for media controls
 #[derive(Clone, Debug)]
 pub enum PlaybackState {
     Playing { progress_secs: Option<f64> },
-    Paused { progress_secs: Option<f64> },
-    Stopped,
 }
 
 /// Events from media controls to the app
@@ -80,10 +70,6 @@ impl MediaControlHandle {
     pub fn set_playback(&self, state: PlaybackState) {
         let _ = self.tx.send(MediaControlCommand::SetPlayback(state));
     }
-
-    pub fn shutdown(&self) {
-        let _ = self.tx.send(MediaControlCommand::Shutdown);
-    }
 }
 
 /// Run the application with the macOS event loop on main thread.
@@ -122,7 +108,6 @@ where
         controls: Option<MediaControls>,
         cmd_rx: mpsc::Receiver<MediaControlCommand>,
         event_tx: mpsc::Sender<MediaControlEvent>,
-        should_exit: bool,
     }
 
     impl ApplicationHandler for App {
@@ -226,30 +211,15 @@ where
                             });
                         }
                         MediaControlCommand::SetPlayback(state) => {
-                            let playback = match state {
-                                PlaybackState::Playing { progress_secs } => {
-                                    MediaPlayback::Playing {
-                                        progress: progress_secs
-                                            .map(|s| MediaPosition(Duration::from_secs_f64(s))),
-                                    }
-                                }
-                                PlaybackState::Paused { progress_secs } => MediaPlayback::Paused {
-                                    progress: progress_secs
-                                        .map(|s| MediaPosition(Duration::from_secs_f64(s))),
-                                },
-                                PlaybackState::Stopped => MediaPlayback::Stopped,
+                            let PlaybackState::Playing { progress_secs } = state;
+                            let playback = MediaPlayback::Playing {
+                                progress: progress_secs
+                                    .map(|s| MediaPosition(Duration::from_secs_f64(s))),
                             };
                             let _ = controls.set_playback(playback);
                         }
-                        MediaControlCommand::Shutdown => {
-                            self.should_exit = true;
-                        }
                     }
                 }
-            }
-
-            if self.should_exit {
-                event_loop.exit();
             }
 
             // Use a reasonable polling interval
@@ -264,7 +234,6 @@ where
         controls: None,
         cmd_rx,
         event_tx,
-        should_exit: false,
     };
 
     debug!("Starting winit event loop on main thread");

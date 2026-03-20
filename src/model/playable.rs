@@ -1,5 +1,3 @@
-use chrono::{DateTime, Utc};
-
 use crate::library::Library;
 use crate::model::album::Album;
 use crate::model::artist::Artist;
@@ -86,13 +84,6 @@ impl Playable {
         }
     }
 
-    pub fn uri(&self) -> String {
-        match self {
-            Self::Track(track) => track.uri(),
-            Self::Episode(episode) => episode.uri.clone(),
-        }
-    }
-
     pub fn cover_url(&self) -> Option<String> {
         match self {
             Self::Track(track) => track.cover_url.clone(),
@@ -104,27 +95,6 @@ impl Playable {
         match self {
             Self::Track(track) => track.duration,
             Self::Episode(episode) => episode.duration,
-        }
-    }
-
-    pub fn list_index(&self) -> usize {
-        match self {
-            Self::Track(track) => track.list_index,
-            Self::Episode(episode) => episode.list_index,
-        }
-    }
-
-    pub fn set_list_index(&mut self, index: usize) {
-        match self {
-            Self::Track(track) => track.list_index = index,
-            Self::Episode(episode) => episode.list_index = index,
-        }
-    }
-
-    pub fn set_added_at(&mut self, added_at: Option<DateTime<Utc>>) {
-        match self {
-            Self::Track(track) => track.added_at = added_at,
-            Self::Episode(episode) => episode.added_at = added_at,
         }
     }
 

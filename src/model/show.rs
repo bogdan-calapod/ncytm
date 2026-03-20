@@ -20,18 +20,6 @@ pub struct Show {
 }
 
 impl Show {
-    pub fn new(id: String, name: String, publisher: String) -> Self {
-        Self {
-            id: id.clone(),
-            uri: format!("youtube:show:{}", id),
-            name,
-            publisher,
-            description: String::new(),
-            cover_url: None,
-            episodes: None,
-        }
-    }
-
     pub fn load_all_episodes(&mut self, spotify: Spotify) {
         if self.episodes.is_some() {
             return;

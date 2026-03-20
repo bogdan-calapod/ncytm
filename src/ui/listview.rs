@@ -15,12 +15,7 @@ use crate::command::{Command, GotoMode, InsertSource, JumpMode, MoveAmount, Move
 use crate::commands::CommandResult;
 use crate::ext_traits::CursiveExt;
 use crate::library::Library;
-use crate::model::album::Album;
-use crate::model::artist::Artist;
-use crate::model::episode::Episode;
 use crate::model::playable::Playable;
-use crate::model::playlist::Playlist;
-use crate::model::show::Show;
 use crate::model::track::Track;
 use crate::queue::Queue;
 #[cfg(feature = "share_clipboard")]

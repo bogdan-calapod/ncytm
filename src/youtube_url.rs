@@ -154,23 +154,15 @@ impl YouTubeUrl {
     }
 
     /// Create a YouTubeUrl from a video ID.
+    #[cfg(test)]
     pub fn from_video_id(video_id: &str) -> Self {
         Self::new(video_id, UriType::Track)
     }
 
     /// Create a YouTubeUrl from a playlist ID.
+    #[cfg(test)]
     pub fn from_playlist_id(playlist_id: &str) -> Self {
         Self::new(playlist_id, UriType::Playlist)
-    }
-
-    /// Create a YouTubeUrl from an album browse ID.
-    pub fn from_album_id(album_id: &str) -> Self {
-        Self::new(album_id, UriType::Album)
-    }
-
-    /// Create a YouTubeUrl from a channel/artist ID.
-    pub fn from_artist_id(artist_id: &str) -> Self {
-        Self::new(artist_id, UriType::Artist)
     }
 }
 

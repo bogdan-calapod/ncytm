@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::sync::{Arc, RwLock};
 
-use log::{debug, info};
+use log::info;
 #[cfg(feature = "notify")]
 use notify_rust::Notification;
 
@@ -24,14 +24,6 @@ pub enum RepeatSetting {
     RepeatPlaylist,
     #[serde(rename = "track")]
     RepeatTrack,
-}
-
-/// Events that are specific to the [Queue].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum QueueEvent {
-    /// Request the player to 'preload' a track, basically making sure that
-    /// transitions between tracks can be uninterrupted.
-    PreloadTrackRequest,
 }
 
 /// The queue determines the playback order of [Playable] items, and is also used to control
@@ -335,7 +327,6 @@ impl Queue {
                 Some(_) => self.next(false),
                 None => self.play(0, false, false),
             },
-            _ => (),
         }
     }
 
@@ -457,19 +448,6 @@ impl Queue {
         }
     }
 
-    /// Handle events that are specific to the queue.
-    pub fn handle_event(&self, event: QueueEvent) {
-        match event {
-            QueueEvent::PreloadTrackRequest => {
-                if let Some(next_index) = self.next_index() {
-                    let track = self.queue.read().unwrap()[next_index].clone();
-                    debug!("Preloading track {track} as requested by librespot");
-                    self.spotify.preload(&track);
-                }
-            }
-        }
-    }
-
     /// Get the spotify session.
     pub fn get_spotify(&self) -> Spotify {
         self.spotify.clone()
@@ -510,6 +488,8 @@ pub fn send_notification(summary_txt: &str, body_txt: &str, cover_url: Option<St
             // only available for XDG
             #[cfg(all(unix, not(target_os = "macos")))]
             info!("Created notification: {}", handle.id());
+            #[cfg(not(all(unix, not(target_os = "macos"))))]
+            let _ = handle;
         }
         Err(e) => log::error!("Failed to send notification cover: {e}"),
     }

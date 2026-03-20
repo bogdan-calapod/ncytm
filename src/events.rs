@@ -1,14 +1,8 @@
 use crossbeam_channel::{Receiver, Sender, TryIter, unbounded};
 use cursive::{CbSink, Cursive};
 
-use crate::queue::QueueEvent;
-use crate::spotify::PlayerEvent;
-
 /// Events that can be sent to and handled by the main event loop (the one drawing the TUI).
 pub enum Event {
-    Player(PlayerEvent),
-    Queue(QueueEvent),
-    SessionDied,
     IpcInput(String),
 }
 

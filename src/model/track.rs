@@ -43,44 +43,6 @@ pub struct Track {
 }
 
 impl Track {
-    /// Create a new track with minimal required fields.
-    pub fn new(id: Option<String>, title: String, artists: Vec<String>, duration: u32) -> Self {
-        Self {
-            id,
-            title,
-            duration,
-            artists,
-            artist_ids: Vec::new(),
-            album: None,
-            album_id: None,
-            cover_url: None,
-            added_at: None,
-            list_index: 0,
-            is_explicit: false,
-            set_video_id: None,
-        }
-    }
-
-    /// Get a URI for this track (for internal identification).
-    pub fn uri(&self) -> String {
-        self.id
-            .as_ref()
-            .map(|id| format!("youtube:track:{}", id))
-            .unwrap_or_default()
-    }
-
-    /// Get the YouTube Music URL for this track.
-    pub fn url(&self) -> Option<String> {
-        self.id
-            .as_ref()
-            .map(|id| format!("https://music.youtube.com/watch?v={}", id))
-    }
-
-    /// Get the video ID (alias for id for clarity).
-    pub fn video_id(&self) -> Option<&str> {
-        self.id.as_deref()
-    }
-
     /// Format the duration as a human-readable string (e.g., "3:45").
     pub fn duration_str(&self) -> String {
         seconds_to_hms(self.duration)
@@ -196,7 +158,7 @@ impl ListItem for Track {
     ) -> Option<Box<dyn ViewExt>> {
         let spotify = queue.get_spotify();
 
-        let recommendations: Vec<Track> = if let Some(id) = &self.id {
+        let recommendations: Vec<Self> = if let Some(id) = &self.id {
             spotify.api.recommendations(Some(vec![id.clone()]), None)
         } else {
             Vec::new()

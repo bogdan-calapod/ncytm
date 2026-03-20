@@ -20,7 +20,6 @@ use crate::ui::tabbedview::TabbedView;
 pub enum AlbumType {
     Album,
     Single,
-    Compilation,
 }
 
 pub struct ArtistView {

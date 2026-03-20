@@ -39,19 +39,12 @@ impl Artist {
         }
     }
 
-    /// Get the YouTube Music URL for this artist.
-    pub fn url(&self) -> Option<String> {
-        self.id
-            .as_ref()
-            .map(|id| format!("https://music.youtube.com/channel/{}", id))
-    }
-
     /// Load top tracks for this artist from the API.
     fn load_top_tracks(&mut self, spotify: Spotify) {
-        if let Some(artist_id) = &self.id {
-            if self.tracks.is_none() {
-                self.tracks = Some(spotify.api.artist_top_tracks(artist_id));
-            }
+        if let Some(artist_id) = &self.id
+            && self.tracks.is_none()
+        {
+            self.tracks = Some(spotify.api.artist_top_tracks(artist_id));
         }
     }
 }

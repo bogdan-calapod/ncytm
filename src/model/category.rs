@@ -13,12 +13,6 @@ pub struct Category {
     pub name: String,
 }
 
-impl Category {
-    pub fn new(id: String, name: String) -> Self {
-        Self { id, name }
-    }
-}
-
 impl ListItem for Category {
     fn is_playing(&self, _queue: &Queue) -> bool {
         false

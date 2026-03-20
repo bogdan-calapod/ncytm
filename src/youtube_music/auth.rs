@@ -50,35 +50,34 @@ pub fn generate_sapisid_hash_with_timestamp(sapisid: &str, origin: &str, timesta
     format!("SAPISIDHASH {}_{}", timestamp, hash_hex)
 }
 
-/// Check if a SAPISID hash has the correct format.
-///
-/// The expected format is: `SAPISIDHASH <timestamp>_<40-char-hex>`
-pub fn is_valid_sapisid_hash_format(hash: &str) -> bool {
-    if !hash.starts_with("SAPISIDHASH ") {
-        return false;
-    }
-
-    let parts: Vec<&str> = hash["SAPISIDHASH ".len()..].split('_').collect();
-    if parts.len() != 2 {
-        return false;
-    }
-
-    // Timestamp should be numeric
-    if parts[0].parse::<u64>().is_err() {
-        return false;
-    }
-
-    // Hash should be 40 hex characters (SHA1)
-    if parts[1].len() != 40 || !parts[1].chars().all(|c| c.is_ascii_hexdigit()) {
-        return false;
-    }
-
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Validate that a SAPISID hash has the correct format.
+    /// Used for testing hash generation.
+    fn is_valid_sapisid_hash_format(hash: &str) -> bool {
+        // Format should be: SAPISIDHASH <timestamp>_<40-char-hex>
+        let parts: Vec<&str> = hash.splitn(2, ' ').collect();
+        if parts.len() != 2 || parts[0] != "SAPISIDHASH" {
+            return false;
+        }
+
+        let remainder = parts[1];
+        let hash_parts: Vec<&str> = remainder.splitn(2, '_').collect();
+        if hash_parts.len() != 2 {
+            return false;
+        }
+
+        // Timestamp should be numeric
+        if hash_parts[0].parse::<u64>().is_err() {
+            return false;
+        }
+
+        // Hash should be 40 hex characters (SHA1)
+        let hex_hash = hash_parts[1];
+        hex_hash.len() == 40 && hex_hash.chars().all(|c| c.is_ascii_hexdigit())
+    }
 
     #[test]
     fn test_generate_sapisid_hash_known_values() {

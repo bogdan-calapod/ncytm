@@ -37,6 +37,7 @@ pub enum CookieError {
     #[error("Failed to read cookie file: {0}")]
     IoError(#[from] std::io::Error),
 
+    #[cfg(test)]
     #[error("Missing required cookie: {0}")]
     MissingCookie(String),
 
@@ -112,18 +113,20 @@ impl Cookies {
     }
 
     /// Get a list of missing required cookies.
+    #[cfg(test)]
     pub fn missing_cookies(&self) -> Vec<&'static str> {
         REQUIRED_COOKIES
             .iter()
-            .filter(|name| !self.jar.get(**name).is_some_and(|v| !v.is_empty()))
+            .filter(|name| self.jar.get(**name).is_none_or(|v| v.is_empty()))
             .copied()
             .collect()
     }
 
     /// Validate that all required cookies are present.
+    #[cfg(test)]
     pub fn validate(&self) -> Result<(), CookieError> {
         for name in REQUIRED_COOKIES {
-            if !self.jar.get(*name).is_some_and(|v| !v.is_empty()) {
+            if self.jar.get(*name).is_none_or(|v| v.is_empty()) {
                 return Err(CookieError::MissingCookie(name.to_string()));
             }
         }
@@ -133,11 +136,6 @@ impl Cookies {
     /// Get the SAPISID cookie, required for API authentication.
     pub fn sapisid(&self) -> Option<&str> {
         self.get("SAPISID")
-    }
-
-    /// Get all cookies as a HashMap reference.
-    pub fn all(&self) -> &HashMap<String, String> {
-        &self.jar
     }
 
     /// Get only the authentication cookies needed for API requests.
@@ -151,11 +149,13 @@ impl Cookies {
     }
 
     /// Get the number of cookies.
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.jar.len()
     }
 
     /// Check if the cookie jar is empty.
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.jar.is_empty()
     }

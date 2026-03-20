@@ -2,7 +2,6 @@ use std::iter::Iterator;
 use std::sync::{Arc, RwLock};
 
 use log::debug;
-use rand::{rng, seq::IteratorRandom};
 
 use crate::model::playable::Playable;
 use crate::queue::Queue;
@@ -33,25 +32,6 @@ pub struct Playlist {
 }
 
 impl Playlist {
-    /// Create a new playlist with minimal required fields.
-    pub fn new(id: String, name: String, owner_id: String) -> Self {
-        Self {
-            id,
-            name,
-            owner_id,
-            owner_name: None,
-            num_tracks: 0,
-            tracks: None,
-            thumbnail_url: None,
-            description: None,
-        }
-    }
-
-    /// Get the YouTube Music URL for this playlist.
-    pub fn url(&self) -> String {
-        format!("https://music.youtube.com/playlist?list={}", self.id)
-    }
-
     /// Load tracks for this playlist from the API.
     pub fn load_tracks(&mut self, spotify: &Spotify) {
         if self.tracks.is_some() {

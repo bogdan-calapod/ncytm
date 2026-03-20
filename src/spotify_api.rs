@@ -1,10 +1,7 @@
 //! Stub module for Spotify Web API functionality.
 //! This will be replaced with YouTube Music API implementation.
 
-use std::sync::{Arc, RwLock};
-
 use log::info;
-use tokio::sync::mpsc;
 
 use crate::model::album::Album;
 use crate::model::artist::Artist;
@@ -14,7 +11,6 @@ use crate::model::playable::Playable;
 use crate::model::playlist::Playlist;
 use crate::model::show::Show;
 use crate::model::track::Track;
-use crate::spotify_worker::WorkerCommand;
 use crate::ui::pagination::{ApiPage, ApiResult};
 
 /// Search result containing all types of search results.
@@ -26,13 +22,6 @@ pub struct SearchResult {
     pub playlists: Vec<Playlist>,
     pub shows: Vec<Show>,
     pub episodes: Vec<Episode>,
-}
-
-/// Current user information.
-#[derive(Clone, Debug)]
-pub struct CurrentUser {
-    pub id: String,
-    pub display_name: Option<String>,
 }
 
 /// API page with next cursor for pagination.
@@ -81,8 +70,6 @@ impl From<&SavedShow> for Show {
 /// API page for saved tracks.
 #[derive(Clone, Debug, Default)]
 pub struct SavedTracksPage {
-    pub offset: u32,
-    pub total: u32,
     pub items: Vec<SavedTrack>,
     pub next: Option<String>,
 }
@@ -90,8 +77,6 @@ pub struct SavedTracksPage {
 /// API page for saved albums.  
 #[derive(Clone, Debug, Default)]
 pub struct SavedAlbumsPage {
-    pub offset: u32,
-    pub total: u32,
     pub items: Vec<SavedAlbum>,
     pub next: Option<String>,
 }
@@ -100,56 +85,17 @@ pub struct SavedAlbumsPage {
 #[derive(Clone, Debug, Default)]
 pub struct SavedShowsPage {
     pub offset: u32,
-    pub total: u32,
     pub items: Vec<SavedShow>,
     pub next: Option<String>,
 }
 
 /// Stub WebApi - will be replaced with YouTube Music API.
-#[derive(Clone)]
-pub struct WebApi {
-    user: Option<String>,
-    worker_channel: Arc<RwLock<Option<mpsc::UnboundedSender<WorkerCommand>>>>,
-}
-
-impl Default for WebApi {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+#[derive(Clone, Default)]
+pub struct WebApi {}
 
 impl WebApi {
     pub fn new() -> Self {
-        Self {
-            user: None,
-            worker_channel: Arc::new(RwLock::new(None)),
-        }
-    }
-
-    pub fn set_user(&mut self, user: Option<String>) {
-        self.user = user;
-    }
-
-    pub(crate) fn set_worker_channel(
-        &mut self,
-        channel: Arc<RwLock<Option<mpsc::UnboundedSender<WorkerCommand>>>>,
-    ) {
-        self.worker_channel = channel;
-    }
-
-    pub fn set_token(&self, _token: Option<()>) {
-        info!("set_token stubbed");
-    }
-
-    pub fn current_user(&self) -> Option<CurrentUser> {
-        self.user.as_ref().map(|id| CurrentUser {
-            id: id.clone(),
-            display_name: Some(id.clone()),
-        })
-    }
-
-    pub fn current_user_playlist_check(&self, _playlist_id: &str) -> bool {
-        false
+        Self {}
     }
 
     /// Refresh the API token if needed.
@@ -179,10 +125,6 @@ impl WebApi {
         Ok(())
     }
 
-    pub fn current_user_saved_tracks_contains(&self, _ids: &[String]) -> Vec<bool> {
-        vec![false]
-    }
-
     pub fn current_user_saved_albums(&self, _offset: u32) -> Result<SavedAlbumsPage, String> {
         Ok(SavedAlbumsPage::default())
     }
@@ -195,18 +137,6 @@ impl WebApi {
     pub fn current_user_saved_albums_delete(&self, _ids: Vec<&str>) -> Result<(), String> {
         info!("delete albums stubbed");
         Ok(())
-    }
-
-    pub fn current_user_saved_albums_contains(&self, _ids: &[String]) -> Vec<bool> {
-        vec![false]
-    }
-
-    pub fn current_user_playlists(&self, _offset: u32) -> ApiPage<Playlist> {
-        ApiPage {
-            offset: 0,
-            total: 0,
-            items: Vec::new(),
-        }
     }
 
     pub fn current_user_playlist(&self) -> ApiResult<Playlist> {
@@ -230,34 +160,8 @@ impl WebApi {
         Ok(())
     }
 
-    pub fn user_artist_check_follow(&self, _ids: &[String]) -> Vec<bool> {
-        vec![false]
-    }
-
-    pub fn current_user_followed_shows(&self, _offset: u32) -> ApiPage<Show> {
-        ApiPage {
-            offset: 0,
-            total: 0,
-            items: Vec::new(),
-        }
-    }
-
     pub fn get_saved_shows(&self, _offset: u32) -> Result<SavedShowsPage, String> {
         Ok(SavedShowsPage::default())
-    }
-
-    pub fn user_follow_show(&self, _ids: &[String]) -> bool {
-        info!("follow show stubbed");
-        true
-    }
-
-    pub fn user_unfollow_show(&self, _ids: &[String]) -> bool {
-        info!("unfollow show stubbed");
-        true
-    }
-
-    pub fn user_show_check_follow(&self, _ids: &[String]) -> Vec<bool> {
-        vec![false]
     }
 
     pub fn save_shows(&self, _ids: &[&str]) -> Result<(), String> {
@@ -277,10 +181,6 @@ impl WebApi {
 
     pub fn album(&self, _id: &str) -> Result<Album, String> {
         Err("Album stub".to_string())
-    }
-
-    pub fn album_tracks(&self, _id: &str, _limit: u32, _offset: u32) -> Option<ApiPage<Track>> {
-        None
     }
 
     pub fn artist(&self, _id: &str) -> Option<Artist> {
@@ -352,16 +252,6 @@ impl WebApi {
         info!("overwrite playlist stubbed");
     }
 
-    pub fn user_playlist_create(
-        &self,
-        _name: &str,
-        _public: bool,
-        _description: Option<&str>,
-    ) -> Option<Playlist> {
-        info!("create playlist stubbed");
-        None
-    }
-
     pub fn user_playlist_follow_playlist(&self, _id: &str) -> Result<(), String> {
         info!("follow playlist stubbed");
         Ok(())
@@ -392,19 +282,6 @@ impl WebApi {
         true
     }
 
-    pub fn user_playlist_reorder_tracks(
-        &self,
-        _playlist_id: &str,
-        _uris: Option<&[&str]>,
-        _range_start: Option<usize>,
-        _insert_before: Option<usize>,
-        _range_length: Option<usize>,
-        _snapshot_id: Option<&str>,
-    ) -> bool {
-        info!("reorder playlist stubbed");
-        true
-    }
-
     // Browse
     pub fn categories(&self) -> ApiResult<Category> {
         ApiResult::new(50, std::sync::Arc::new(|_offset| None))
@@ -418,10 +295,6 @@ impl WebApi {
         }
     }
 
-    pub fn made_for_you(&self) -> Vec<Playlist> {
-        Vec::new()
-    }
-
     // Recommendations
     pub fn recommendations(
         &self,
@@ -429,10 +302,5 @@ impl WebApi {
         _seed_artists: Option<Vec<String>>,
     ) -> Vec<Track> {
         Vec::new()
-    }
-
-    // Resolve URIs
-    pub fn resolve_uri(&self, _uri: &str) -> Option<Box<dyn crate::traits::ListItem>> {
-        None
     }
 }

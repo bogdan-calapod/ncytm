@@ -3,12 +3,11 @@
 //! Provides audio playback functionality using rodio for audio output
 //! and symphonia for decoding various audio formats.
 
-use std::io::{BufReader, Read, Seek};
+use std::io::BufReader;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Duration;
 
-use log::{debug, error, info, warn};
+use log::{debug, info};
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use thiserror::Error;
 
@@ -16,22 +15,19 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum PlayerError {
     #[error("Failed to initialize audio output: {0}")]
-    OutputError(String),
+    Output(String),
 
     #[error("Failed to decode audio: {0}")]
-    DecodeError(String),
+    Decode(String),
 
     #[error("Failed to load audio from URL: {0}")]
-    LoadError(String),
+    Load(String),
 
     #[error("HTTP error: {0}")]
-    HttpError(#[from] reqwest::Error),
+    Http(#[from] reqwest::Error),
 
     #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
-
-    #[error("No audio output available")]
-    NoOutput,
+    Io(#[from] std::io::Error),
 }
 
 /// Audio player state.
@@ -69,7 +65,7 @@ impl Player {
     /// Create a new audio player.
     pub fn new() -> Result<Self, PlayerError> {
         let (stream, stream_handle) =
-            OutputStream::try_default().map_err(|e| PlayerError::OutputError(e.to_string()))?;
+            OutputStream::try_default().map_err(|e| PlayerError::Output(e.to_string()))?;
 
         Ok(Self {
             _stream: stream,
@@ -104,7 +100,7 @@ impl Player {
         let reader = BufReader::new(file);
 
         // Create decoder
-        let source = Decoder::new(reader).map_err(|e| PlayerError::DecodeError(e.to_string()))?;
+        let source = Decoder::new(reader).map_err(|e| PlayerError::Decode(e.to_string()))?;
 
         // Get duration if available
         if let Some(duration) = source.total_duration() {
@@ -113,8 +109,8 @@ impl Player {
         }
 
         // Create a new sink
-        let sink = Sink::try_new(&self.stream_handle)
-            .map_err(|e| PlayerError::OutputError(e.to_string()))?;
+        let sink =
+            Sink::try_new(&self.stream_handle).map_err(|e| PlayerError::Output(e.to_string()))?;
 
         // Set volume
         sink.set_volume(self.volume);
@@ -155,16 +151,16 @@ impl Player {
 
         // Check if file exists and has content
         let metadata = std::fs::metadata(path)
-            .map_err(|e| PlayerError::LoadError(format!("File not found: {} - {}", path, e)))?;
+            .map_err(|e| PlayerError::Load(format!("File not found: {} - {}", path, e)))?;
 
         if metadata.len() == 0 {
-            return Err(PlayerError::LoadError("Audio file is empty".to_string()));
+            return Err(PlayerError::Load("Audio file is empty".to_string()));
         }
 
         dlog(&format!("File size: {} bytes", metadata.len()));
 
         std::fs::File::open(path)
-            .map_err(|e| PlayerError::LoadError(format!("Failed to open file: {}", e)))
+            .map_err(|e| PlayerError::Load(format!("Failed to open file: {}", e)))
     }
 
     /// Download audio to a temp file for reliable playback.
@@ -194,68 +190,26 @@ impl Player {
                 "-o", &temp_path, url,
             ])
             .status()
-            .map_err(|e| PlayerError::DecodeError(format!("curl failed: {}", e)))?;
+            .map_err(|e| PlayerError::Decode(format!("curl failed: {}", e)))?;
 
         dlog(&format!("curl exit status: {:?}", status));
 
         if !status.success() {
-            return Err(PlayerError::DecodeError(
-                "Failed to download audio".to_string(),
-            ));
+            return Err(PlayerError::Decode("Failed to download audio".to_string()));
         }
 
         // Check file size
         let metadata =
-            std::fs::metadata(&temp_path).map_err(|e| PlayerError::DecodeError(e.to_string()))?;
+            std::fs::metadata(&temp_path).map_err(|e| PlayerError::Decode(e.to_string()))?;
 
         dlog(&format!("Downloaded {} bytes", metadata.len()));
 
         if metadata.len() == 0 {
-            return Err(PlayerError::DecodeError(
-                "Downloaded file is empty".to_string(),
-            ));
+            return Err(PlayerError::Decode("Downloaded file is empty".to_string()));
         }
 
         // Open the file for reading
-        std::fs::File::open(&temp_path).map_err(|e| PlayerError::DecodeError(e.to_string()))
-    }
-
-    /// Load audio from bytes.
-    pub fn load_bytes(&mut self, data: Vec<u8>, start_playing: bool) -> Result<(), PlayerError> {
-        // Stop any current playback
-        self.stop();
-
-        let cursor = std::io::Cursor::new(data);
-        let reader = BufReader::new(cursor);
-
-        // Create decoder
-        let source = Decoder::new(reader).map_err(|e| PlayerError::DecodeError(e.to_string()))?;
-
-        // Get duration if available
-        if let Some(duration) = source.total_duration() {
-            self.duration_ms
-                .store(duration.as_millis() as u64, Ordering::SeqCst);
-        }
-
-        // Create a new sink
-        let sink = Sink::try_new(&self.stream_handle)
-            .map_err(|e| PlayerError::OutputError(e.to_string()))?;
-
-        sink.set_volume(self.volume);
-        sink.append(source);
-
-        if !start_playing {
-            sink.pause();
-            self.state = PlayerState::Paused;
-        } else {
-            self.state = PlayerState::Playing;
-        }
-
-        self.sink = Some(sink);
-        self.finished.store(false, Ordering::SeqCst);
-        self.position_ms.store(0, Ordering::SeqCst);
-
-        Ok(())
+        std::fs::File::open(&temp_path).map_err(|e| PlayerError::Decode(e.to_string()))
     }
 
     /// Start or resume playback.
@@ -301,62 +255,16 @@ impl Player {
         debug!("Volume set to {:.0}%", self.volume * 100.0);
     }
 
-    /// Get the current volume level.
-    pub fn volume(&self) -> f32 {
-        self.volume
-    }
-
     /// Get the current player state.
+    #[cfg(test)]
     pub fn state(&self) -> PlayerState {
         self.state
     }
 
-    /// Check if playback is currently active.
-    pub fn is_playing(&self) -> bool {
-        self.state == PlayerState::Playing
-    }
-
-    /// Check if the current track has finished playing.
-    pub fn is_finished(&self) -> bool {
-        if let Some(ref sink) = self.sink {
-            sink.empty()
-        } else {
-            true
-        }
-    }
-
-    /// Get the current playback position.
-    pub fn position(&self) -> Duration {
-        // Note: rodio doesn't provide easy position tracking
-        // This is a placeholder - in practice, you'd need to track this manually
-        Duration::from_millis(self.position_ms.load(Ordering::SeqCst))
-    }
-
-    /// Get the total duration of the current track.
-    pub fn duration(&self) -> Duration {
-        Duration::from_millis(self.duration_ms.load(Ordering::SeqCst))
-    }
-
-    /// Seek to a specific position.
-    ///
-    /// Note: Seeking is not well-supported with streaming sources in rodio.
-    /// This is a best-effort implementation.
-    pub fn seek(&mut self, _position: Duration) -> Result<(), PlayerError> {
-        // rodio doesn't support seeking well with streaming sources
-        // For proper seeking, we'd need to reload the audio from the URL
-        // with a Range header or use a different approach
-        warn!("Seeking is not fully supported");
-        Ok(())
-    }
-
-    /// Skip forward by a given duration.
-    pub fn skip_forward(&mut self, duration: Duration) -> Result<(), PlayerError> {
-        if let Some(ref sink) = self.sink {
-            sink.skip_one();
-            // This skips to the next source in the queue, not a time-based skip
-            // True time-based skipping requires different implementation
-        }
-        Ok(())
+    /// Get the current volume level.
+    #[cfg(test)]
+    pub fn volume(&self) -> f32 {
+        self.volume
     }
 }
 

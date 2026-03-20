@@ -5,8 +5,25 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::search::{AlbumRef, ArtistRef};
 use crate::youtube_music::{ClientError, YouTubeMusicClient};
+
+/// Reference to an artist (used in tracks and albums).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtistRef {
+    /// Artist name.
+    pub name: String,
+    /// Browse ID (if available).
+    pub browse_id: Option<String>,
+}
+
+/// Reference to an album (used in tracks).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlbumRef {
+    /// Album title.
+    pub title: String,
+    /// Browse ID (if available).
+    pub browse_id: Option<String>,
+}
 
 /// Browse ID for the user's liked songs playlist.
 const LIKED_SONGS_BROWSE_ID: &str = "FEmusic_liked_videos";
@@ -171,7 +188,6 @@ fn parse_library_tracks_response(
     response: &Value,
 ) -> Result<LibraryResponse<LibraryTrack>, ClientError> {
     let mut tracks = Vec::new();
-    let mut continuation = None;
 
     // Try to find contents in the response
     // Initial response: contents.singleColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.sectionListRenderer.contents[0].musicShelfRenderer
@@ -207,8 +223,6 @@ fn parse_library_tracks_response(
         (items, token)
     };
 
-    continuation = cont_token;
-
     if let Some(items) = contents {
         for item in items {
             if let Some(track) = parse_library_track(item) {
@@ -219,7 +233,7 @@ fn parse_library_tracks_response(
 
     Ok(LibraryResponse {
         items: tracks,
-        continuation,
+        continuation: cont_token,
     })
 }
 
@@ -266,10 +280,9 @@ fn parse_library_track(item: &Value) -> Option<LibraryTrack> {
             if let Some(text) = col
                 .pointer("/musicResponsiveListItemFixedColumnRenderer/text/runs/0/text")
                 .and_then(|v| v.as_str())
+                && text.contains(':')
             {
-                if text.contains(':') {
-                    duration_seconds = parse_duration(text);
-                }
+                duration_seconds = parse_duration(text);
             }
         }
     }
@@ -356,7 +369,6 @@ fn parse_library_playlists_response(
     response: &Value,
 ) -> Result<LibraryResponse<LibraryPlaylist>, ClientError> {
     let mut playlists = Vec::new();
-    let mut continuation = None;
 
     // Find the grid or shelf containing playlists
     let (contents, cont_token) = if let Some(cont) = response.get("continuationContents") {
@@ -385,8 +397,6 @@ fn parse_library_playlists_response(
         (items, token)
     };
 
-    continuation = cont_token;
-
     if let Some(items) = contents {
         for item in items {
             if let Some(playlist) = parse_library_playlist(item) {
@@ -397,7 +407,7 @@ fn parse_library_playlists_response(
 
     Ok(LibraryResponse {
         items: playlists,
-        continuation,
+        continuation: cont_token,
     })
 }
 
@@ -442,7 +452,6 @@ fn parse_library_albums_response(
     response: &Value,
 ) -> Result<LibraryResponse<LibraryAlbum>, ClientError> {
     let mut albums = Vec::new();
-    let mut continuation = None;
 
     let (contents, cont_token) = if let Some(cont) = response.get("continuationContents") {
         let grid = cont.get("gridContinuation");
@@ -469,8 +478,6 @@ fn parse_library_albums_response(
         (items, token)
     };
 
-    continuation = cont_token;
-
     if let Some(items) = contents {
         for item in items {
             if let Some(album) = parse_library_album(item) {
@@ -481,7 +488,7 @@ fn parse_library_albums_response(
 
     Ok(LibraryResponse {
         items: albums,
-        continuation,
+        continuation: cont_token,
     })
 }
 

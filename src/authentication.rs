@@ -3,9 +3,9 @@
 //! YouTube Music uses cookie-based authentication. Users need to export their
 //! cookies from a browser session where they're logged into YouTube Music.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use log::{debug, error, info, warn};
+use log::{debug, info};
 use tokio::runtime::Runtime;
 
 use crate::config::{self, Config};
@@ -53,8 +53,6 @@ pub struct AuthResult {
     pub cookies: Cookies,
     /// Account name (if available).
     pub account_name: Option<String>,
-    /// Channel handle (if available).
-    pub channel_handle: Option<String>,
 }
 
 /// Authenticate with YouTube Music using cookies.
@@ -144,22 +142,7 @@ fn verify_cookies(cookies: Cookies) -> Result<AuthResult, AuthError> {
     Ok(AuthResult {
         cookies,
         account_name: account_info.name,
-        channel_handle: account_info.channel_handle,
     })
-}
-
-/// Check if valid cookies exist without fully authenticating.
-pub fn has_valid_cookies(config: &Config) -> bool {
-    let cookies_path = get_cookies_path(config);
-
-    if !cookies_path.exists() {
-        return false;
-    }
-
-    match Cookies::from_file(&cookies_path) {
-        Ok(cookies) => cookies.has_required(),
-        Err(_) => false,
-    }
 }
 
 /// Get instructions for obtaining cookies.

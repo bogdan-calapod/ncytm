@@ -7,7 +7,6 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 
 use crate::config;
@@ -77,20 +76,11 @@ pub enum PlayerEvent {
     Playing(SystemTime),
     Paused(Duration),
     Stopped,
-    FinishedTrack,
 }
 
 /// Stub credentials type for backward compatibility.
-#[derive(Clone, Debug)]
-pub struct Credentials {
-    pub username: Option<String>,
-}
-
-impl Default for Credentials {
-    fn default() -> Self {
-        Self { username: None }
-    }
-}
+#[derive(Clone, Debug, Default)]
+pub struct Credentials {}
 
 /// Commands sent to the player thread.
 #[derive(Debug)]
@@ -207,10 +197,6 @@ impl Spotify {
         *self.mpris.lock().unwrap() = Some(mpris);
     }
 
-    pub fn update_status(&self, status: PlayerEvent) {
-        *self.status.write().unwrap() = status;
-    }
-
     pub fn get_current_status(&self) -> PlayerEvent {
         self.status.read().unwrap().clone()
     }
@@ -312,8 +298,6 @@ impl Spotify {
             let _ = tx.send(PlayerCommand::SetVolume(volume_f32));
         }
     }
-
-    pub fn preload(&self, _track: &Playable) {}
 
     pub fn shutdown(&self) {
         dlog("Shutting down player");

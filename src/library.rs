@@ -105,31 +105,6 @@ impl Library {
         library
     }
 
-    /// Create a new library (legacy constructor for backward compatibility).
-    pub fn new(ev: EventManager, spotify: Spotify, cfg: Arc<Config>) -> Self {
-        let current_user = spotify.api.current_user();
-        let user_id = current_user.as_ref().map(|u| u.id.clone());
-        let display_name = current_user.as_ref().and_then(|u| u.display_name.clone());
-
-        let library = Self {
-            tracks: Arc::new(RwLock::new(Vec::new())),
-            albums: Arc::new(RwLock::new(Vec::new())),
-            artists: Arc::new(RwLock::new(Vec::new())),
-            playlists: Arc::new(RwLock::new(Vec::new())),
-            shows: Arc::new(RwLock::new(Vec::new())),
-            is_done: Arc::new(RwLock::new(false)),
-            user_id,
-            display_name,
-            ev,
-            spotify,
-            yt_client: None,
-            cfg,
-        };
-
-        library.update_library();
-        library
-    }
-
     /// Load cached items from the file at `cache_path` into the given `store`.
     fn load_cache<T: DeserializeOwned>(&self, cache_path: &Path, store: &mut Vec<T>) {
         let saved_cache_version = self.cfg.state().cache_version;
@@ -879,21 +854,6 @@ impl Library {
         }
     }
 
-    /// If there is a local version of the playlist, update it and rewrite the cache.
-    pub fn playlist_update(&self, updated: &Playlist) {
-        {
-            let mut playlists = self.playlists.write().unwrap();
-            if let Some(playlist) = playlists.iter_mut().find(|p| p.id == updated.id) {
-                *playlist = updated.clone();
-            }
-        }
-
-        self.save_cache(
-            &config::cache_path(CACHE_PLAYLISTS),
-            &self.playlists.read().unwrap(),
-        );
-    }
-
     /// Check whether `track` is saved in the user's library.
     pub fn is_saved_track(&self, track: &Playable) -> bool {
         if !*self.is_done.read().unwrap() {
@@ -1125,16 +1085,6 @@ impl Library {
             &config::cache_path(CACHE_ARTISTS),
             &self.artists.read().unwrap(),
         );
-    }
-
-    /// Check whether `playlist` is saved in the user's library.
-    pub fn is_saved_playlist(&self, playlist: &Playlist) -> bool {
-        if !*self.is_done.read().unwrap() {
-            return false;
-        }
-
-        let playlists = self.playlists.read().unwrap();
-        playlists.iter().any(|p| p.id == playlist.id)
     }
 
     /// Check whether `playlist` is in the library but not created by the library's owner.

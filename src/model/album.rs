@@ -39,29 +39,6 @@ pub struct Album {
 }
 
 impl Album {
-    /// Create a new album with minimal required fields.
-    pub fn new(id: Option<String>, title: String, artists: Vec<String>, year: String) -> Self {
-        Self {
-            id,
-            title,
-            artists,
-            artist_ids: Vec::new(),
-            year,
-            cover_url: None,
-            tracks: None,
-            added_at: None,
-            audio_playlist_id: None,
-            is_explicit: false,
-        }
-    }
-
-    /// Get the YouTube Music URL for this album.
-    pub fn url(&self) -> Option<String> {
-        self.id
-            .as_ref()
-            .map(|id| format!("https://music.youtube.com/browse/{}", id))
-    }
-
     /// Load all tracks for this album from the API.
     pub fn load_all_tracks(&mut self, spotify: Spotify) {
         // Skip if tracks are already loaded
@@ -69,10 +46,10 @@ impl Album {
             return;
         }
 
-        if let Some(ref album_id) = self.id {
-            if let Ok(full_album) = spotify.api.album(album_id) {
-                self.tracks = full_album.tracks.clone();
-            }
+        if let Some(ref album_id) = self.id
+            && let Ok(full_album) = spotify.api.album(album_id)
+        {
+            self.tracks = full_album.tracks.clone();
         }
     }
 }

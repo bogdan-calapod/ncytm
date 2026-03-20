@@ -2,8 +2,6 @@
 //!
 //! Provides an authenticated HTTP client for making requests to the YouTube Music API.
 
-use std::collections::HashMap;
-
 use reqwest::header::{
     AUTHORIZATION, CONTENT_TYPE, COOKIE, HeaderMap, HeaderValue, ORIGIN, REFERER, USER_AGENT,
 };
@@ -36,9 +34,6 @@ pub enum ClientError {
 
     #[error("JSON parsing error: {0}")]
     JsonError(#[from] serde_json::Error),
-
-    #[error("Invalid response format")]
-    InvalidResponse,
 }
 
 /// YouTube Music API client with cookie-based authentication.
@@ -157,11 +152,11 @@ impl YouTubeMusicClient {
         });
 
         // Merge additional body parameters
-        if let Value::Object(map) = body {
-            if let Value::Object(ref mut req_map) = request_body {
-                for (key, value) in map {
-                    req_map.insert(key.clone(), value.clone());
-                }
+        if let Value::Object(map) = body
+            && let Value::Object(ref mut req_map) = request_body
+        {
+            for (key, value) in map {
+                req_map.insert(key.clone(), value.clone());
             }
         }
 
@@ -188,42 +183,6 @@ impl YouTubeMusicClient {
         Ok(json)
     }
 
-    /// Make a POST request with the body as-is (no context override).
-    /// This is useful for player requests that need a different client context.
-    pub async fn post_raw(&self, endpoint: &str, body: &Value) -> Result<Value, ClientError> {
-        let url = format!(
-            "{}/{}?key={}&prettyPrint=false",
-            API_BASE_URL, endpoint, API_KEY
-        );
-
-        let headers = self.build_headers()?;
-
-        let response = self
-            .http
-            .post(&url)
-            .headers(headers)
-            .json(body)
-            .send()
-            .await?;
-
-        // Check for HTTP errors
-        let status = response.status();
-        if !status.is_success() {
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(ClientError::ApiError {
-                message: format!("HTTP {}: {}", status, error_text),
-            });
-        }
-
-        let json: Value = response.json().await?;
-        Ok(json)
-    }
-
-    /// Get a reference to the cookies.
-    pub fn cookies(&self) -> &Cookies {
-        &self.cookies
-    }
-
     /// Verify that the authentication cookies are valid.
     ///
     /// This makes a request to the account menu endpoint to verify the cookies work.
@@ -238,23 +197,9 @@ impl YouTubeMusicClient {
             .and_then(|v| v.as_str())
             .map(String::from);
 
-        let channel_handle = response
-            .pointer("/actions/0/openPopupAction/popup/multiPageMenuRenderer/header/activeAccountHeaderRenderer/channelHandle/runs/0/text")
-            .and_then(|v| v.as_str())
-            .map(String::from);
-
-        let account_photo_url = response
-            .pointer("/actions/0/openPopupAction/popup/multiPageMenuRenderer/header/activeAccountHeaderRenderer/accountPhoto/thumbnails/0/url")
-            .and_then(|v| v.as_str())
-            .map(String::from);
-
         // If we got a valid response with account info, authentication is working
-        if account_name.is_some() || channel_handle.is_some() {
-            Ok(AccountInfo {
-                name: account_name,
-                channel_handle,
-                photo_url: account_photo_url,
-            })
+        if account_name.is_some() {
+            Ok(AccountInfo { name: account_name })
         } else {
             // Check if there's an error in the response
             if let Some(error) = response.get("error") {
@@ -281,10 +226,6 @@ impl YouTubeMusicClient {
 pub struct AccountInfo {
     /// The display name of the account.
     pub name: Option<String>,
-    /// The channel handle (e.g., "@username").
-    pub channel_handle: Option<String>,
-    /// URL to the account's profile photo.
-    pub photo_url: Option<String>,
 }
 
 #[cfg(test)]
@@ -369,16 +310,9 @@ mod tests {
         // Test AccountInfo can be created and accessed
         let info = AccountInfo {
             name: Some("Test User".to_string()),
-            channel_handle: Some("@testuser".to_string()),
-            photo_url: Some("https://example.com/photo.jpg".to_string()),
         };
 
         assert_eq!(info.name, Some("Test User".to_string()));
-        assert_eq!(info.channel_handle, Some("@testuser".to_string()));
-        assert_eq!(
-            info.photo_url,
-            Some("https://example.com/photo.jpg".to_string())
-        );
     }
 
     // Integration test for verify_auth - requires real cookies to run
@@ -407,7 +341,6 @@ mod tests {
             Ok(info) => {
                 println!("Authentication successful!");
                 println!("Account name: {:?}", info.name);
-                println!("Channel handle: {:?}", info.channel_handle);
             }
             Err(e) => {
                 panic!("Authentication failed: {:?}", e);

@@ -56,20 +56,11 @@ pub struct StreamInfo {
 }
 
 /// Audio quality preference for stream selection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AudioQuality {
-    /// Lowest quality (saves bandwidth).
-    Low,
-    /// Medium quality (balanced).
-    Medium,
     /// Highest quality available.
+    #[default]
     High,
-}
-
-impl Default for AudioQuality {
-    fn default() -> Self {
-        Self::High
-    }
 }
 
 /// Get the best audio stream URL for a video.
@@ -146,25 +137,25 @@ pub async fn get_audio_streams(
         Ok(out) => {
             if out.status.success() {
                 // Check if file exists and has content
-                if let Ok(metadata) = std::fs::metadata(&temp_path) {
-                    if metadata.len() > 0 {
-                        dlog(&format!(
-                            "yt-dlp downloaded {} bytes to {}",
-                            metadata.len(),
-                            temp_path
-                        ));
-                        return Ok(vec![StreamInfo {
-                            url: format!("file://{}", temp_path), // Use file:// URL
-                            mime_type: "audio/mpeg".to_string(),
-                            codec: "mp3".to_string(),
-                            bitrate: 128000,
-                            sample_rate: Some(44100),
-                            channels: Some(2),
-                            content_length: Some(metadata.len()),
-                            duration_seconds: None,
-                            expires_at: None,
-                        }]);
-                    }
+                if let Ok(metadata) = std::fs::metadata(&temp_path)
+                    && metadata.len() > 0
+                {
+                    dlog(&format!(
+                        "yt-dlp downloaded {} bytes to {}",
+                        metadata.len(),
+                        temp_path
+                    ));
+                    return Ok(vec![StreamInfo {
+                        url: format!("file://{}", temp_path), // Use file:// URL
+                        mime_type: "audio/mpeg".to_string(),
+                        codec: "mp3".to_string(),
+                        bitrate: 128000,
+                        sample_rate: Some(44100),
+                        channels: Some(2),
+                        content_length: Some(metadata.len()),
+                        duration_seconds: None,
+                        expires_at: None,
+                    }]);
                 }
             }
             let stderr = String::from_utf8_lossy(&out.stderr);
@@ -173,15 +164,15 @@ pub async fn get_audio_streams(
                 "yt-dlp failed - stderr: {}, stdout: {}",
                 stderr, stdout
             ));
-            return Err(StreamError::ApiError {
+            Err(StreamError::ApiError {
                 message: format!("yt-dlp failed: {}", stderr),
-            });
+            })
         }
         Err(e) => {
             dlog(&format!("yt-dlp error: {}", e));
-            return Err(StreamError::ApiError {
+            Err(StreamError::ApiError {
                 message: format!("yt-dlp not available: {}", e),
-            });
+            })
         }
     }
 }
@@ -355,7 +346,7 @@ fn parse_mime_type(mime_type: &str) -> (&str, &str) {
 fn extract_expiration(url: &str) -> Option<SystemTime> {
     // URL contains 'expire=<timestamp>' parameter
     // Split on both '?' and '&' to handle query string properly
-    url.split(|c| c == '?' || c == '&')
+    url.split(['?', '&'])
         .find(|p| p.starts_with("expire="))
         .and_then(|p| p.strip_prefix("expire="))
         .and_then(|ts| ts.parse::<u64>().ok())
@@ -363,22 +354,10 @@ fn extract_expiration(url: &str) -> Option<SystemTime> {
 }
 
 /// Select the best stream based on quality preference.
-fn select_best_stream(streams: &[StreamInfo], quality: AudioQuality) -> &StreamInfo {
-    match quality {
-        AudioQuality::High => {
-            // Streams are already sorted by bitrate (highest first)
-            &streams[0]
-        }
-        AudioQuality::Medium => {
-            // Pick something in the middle
-            let mid = streams.len() / 2;
-            &streams[mid]
-        }
-        AudioQuality::Low => {
-            // Pick the lowest bitrate
-            streams.last().unwrap_or(&streams[0])
-        }
-    }
+fn select_best_stream(streams: &[StreamInfo], _quality: AudioQuality) -> &StreamInfo {
+    // Streams are already sorted by bitrate (highest first)
+    // Currently only High quality is supported
+    &streams[0]
 }
 
 /// Get a signature timestamp for the player request.
@@ -458,12 +437,8 @@ mod tests {
             },
         ];
 
+        // Currently only High quality is supported, so all streams return the highest quality
         assert_eq!(select_best_stream(&streams, AudioQuality::High).url, "high");
-        assert_eq!(
-            select_best_stream(&streams, AudioQuality::Medium).url,
-            "medium"
-        );
-        assert_eq!(select_best_stream(&streams, AudioQuality::Low).url, "low");
     }
 
     #[test]

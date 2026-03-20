@@ -21,20 +21,6 @@ pub struct Episode {
 }
 
 impl Episode {
-    pub fn new(id: String, name: String, duration: u32) -> Self {
-        Self {
-            id: id.clone(),
-            uri: format!("youtube:episode:{}", id),
-            duration,
-            name,
-            description: String::new(),
-            release_date: String::new(),
-            cover_url: None,
-            added_at: None,
-            list_index: 0,
-        }
-    }
-
     pub fn duration_str(&self) -> String {
         ms_to_hms(self.duration)
     }

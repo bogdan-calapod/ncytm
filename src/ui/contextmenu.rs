@@ -72,14 +72,14 @@ impl ContextMenu {
             let track = track.clone();
             let mut playlist = selected.clone();
             let spotify = spotify.clone();
-            let library = library.clone();
+            let _library = library.clone();
 
             if playlist.has_track(track.id.as_ref().unwrap_or(&String::new())) {
                 let mut already_added_dialog = Self::track_already_added();
 
                 already_added_dialog.add_button("Add anyway", move |c| {
                     let mut playlist = playlist.clone();
-                    let tracks = vec![Playable::Track(track.clone())];
+                    let tracks = [Playable::Track(track.clone())];
                     playlist.append_tracks(tracks.iter(), &spotify);
                     c.pop_layer();
 
@@ -90,7 +90,7 @@ impl ContextMenu {
                 let modal = Modal::new(already_added_dialog);
                 s.add_layer(modal);
             } else {
-                let tracks = vec![Playable::Track(track)];
+                let tracks = [Playable::Track(track)];
                 playlist.append_tracks(tracks.iter(), &spotify);
                 s.pop_layer();
             }

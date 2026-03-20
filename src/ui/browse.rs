@@ -20,7 +20,7 @@ impl BrowseView {
     pub fn new(queue: Arc<Queue>, library: Arc<Library>) -> Self {
         let categories = queue.get_spotify().api.categories();
         let list = ListView::new(categories.items.clone(), queue.clone(), library.clone());
-        categories.apply_pagination(&list.get_pagination());
+        categories.apply_pagination(list.get_pagination());
 
         Self { list }
     }
