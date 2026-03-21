@@ -189,20 +189,10 @@ impl ListItem for Playlist {
     ) -> Option<Box<dyn ViewExt>> {
         self.load_tracks(&queue.get_spotify());
 
-        let track_ids: Vec<String> = self
-            .tracks
-            .as_ref()?
-            .iter()
-            .filter_map(|p| p.id())
-            .take(5)
-            .collect();
+        // Use the first track as the seed for radio
+        let seed_track_id = self.tracks.as_ref()?.iter().find_map(|p| p.id())?;
 
-        if track_ids.is_empty() {
-            return None;
-        }
-
-        let spotify = queue.get_spotify();
-        let recommendations = spotify.api.recommendations(Some(track_ids), None);
+        let recommendations = library.get_radio_tracks(&seed_track_id);
 
         if recommendations.is_empty() {
             None
@@ -213,7 +203,7 @@ impl ListItem for Playlist {
                     queue.clone(),
                     library.clone(),
                 )
-                .with_title(&format!("Similar to Playlist \"{}\"", self.name))
+                .with_title(&format!("Radio: Playlist \"{}\"", self.name))
                 .into_boxed_view_ext(),
             )
         }

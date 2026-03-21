@@ -295,7 +295,8 @@ impl WebApi {
         }
     }
 
-    // Recommendations
+    // Recommendations (stub - recommendations are now handled via Library::get_radio_tracks)
+    #[allow(dead_code)]
     pub fn recommendations(
         &self,
         _seed_tracks: Option<Vec<String>>,

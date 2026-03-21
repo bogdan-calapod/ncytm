@@ -1,4 +1,3 @@
-use rand::{rng, seq::IteratorRandom};
 use std::fmt;
 use std::sync::{Arc, RwLock};
 
@@ -166,24 +165,11 @@ impl ListItem for Album {
         library: Arc<Library>,
     ) -> Option<Box<dyn ViewExt>> {
         self.load_all_tracks(queue.get_spotify());
-        let track_ids: Vec<String> = self
-            .tracks
-            .as_ref()?
-            .iter()
-            .filter_map(|t| t.id.clone())
-            .take(4)
-            .collect();
 
-        let artist_id: Option<String> = self.artist_ids.iter().cloned().choose(&mut rng());
+        // Use the first track as the seed for radio
+        let seed_track_id = self.tracks.as_ref()?.iter().find_map(|t| t.id.clone())?;
 
-        if track_ids.is_empty() && artist_id.is_none() {
-            return None;
-        }
-
-        let spotify = queue.get_spotify();
-        let recommendations = spotify
-            .api
-            .recommendations(Some(track_ids), artist_id.map(|a| vec![a]));
+        let recommendations = library.get_radio_tracks(&seed_track_id);
 
         if recommendations.is_empty() {
             None
@@ -194,7 +180,7 @@ impl ListItem for Album {
                     queue.clone(),
                     library.clone(),
                 )
-                .with_title(&format!("Similar to Album \"{}\"", self.title))
+                .with_title(&format!("Radio: Album \"{}\"", self.title))
                 .into_boxed_view_ext(),
             )
         }

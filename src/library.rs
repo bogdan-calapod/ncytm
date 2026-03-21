@@ -23,8 +23,8 @@ use crate::spotify::Spotify;
 use crate::youtube_music::{
     YouTubeMusicClient,
     api::{
-        LibraryAlbum, LibraryPlaylist, LibraryTrack, get_library_albums, get_library_playlists,
-        get_liked_songs,
+        LibraryAlbum, LibraryPlaylist, LibraryTrack, RadioTrack, get_library_albums,
+        get_library_playlists, get_liked_songs, get_radio,
     },
 };
 
@@ -781,6 +781,75 @@ impl Library {
             list_index: index,
             is_explicit: lib_track.is_explicit,
             set_video_id: lib_track.set_video_id.clone(),
+        }
+    }
+
+    /// Convert a RadioTrack from the API to our Track model.
+    fn radio_track_to_track(radio_track: &RadioTrack, index: usize) -> Track {
+        Track {
+            id: Some(radio_track.video_id.clone()),
+            title: radio_track.title.clone(),
+            duration: radio_track.duration_seconds.unwrap_or(0),
+            artists: radio_track.artists.iter().map(|a| a.name.clone()).collect(),
+            artist_ids: radio_track
+                .artists
+                .iter()
+                .filter_map(|a| a.browse_id.clone())
+                .collect(),
+            album: radio_track.album.as_ref().map(|a| a.title.clone()),
+            album_id: radio_track.album.as_ref().and_then(|a| a.browse_id.clone()),
+            cover_url: radio_track.thumbnail_url.clone(),
+            added_at: None,
+            list_index: index,
+            is_explicit: radio_track.is_explicit,
+            set_video_id: None,
+        }
+    }
+
+    /// Get radio (similar tracks) based on a video ID.
+    ///
+    /// This fetches tracks from YouTube Music's radio/automix feature,
+    /// which generates a playlist of similar tracks based on a seed track.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_id` - The YouTube video ID to base the radio on
+    ///
+    /// # Returns
+    ///
+    /// A vector of similar tracks, or an empty vector if the feature is unavailable.
+    pub fn get_radio_tracks(&self, video_id: &str) -> Vec<Track> {
+        if let Some(ref client) = self.yt_client {
+            let runtime = match Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    error!("Failed to create runtime for fetching radio: {}", e);
+                    return Vec::new();
+                }
+            };
+
+            match runtime.block_on(get_radio(client, video_id)) {
+                Ok(response) => {
+                    info!(
+                        "Loaded {} radio tracks for {}",
+                        response.tracks.len(),
+                        video_id
+                    );
+                    response
+                        .tracks
+                        .iter()
+                        .enumerate()
+                        .map(|(index, rt)| Self::radio_track_to_track(rt, index))
+                        .collect()
+                }
+                Err(e) => {
+                    error!("Failed to fetch radio tracks: {:?}", e);
+                    Vec::new()
+                }
+            }
+        } else {
+            debug!("No YouTube Music client available for radio");
+            Vec::new()
         }
     }
 

@@ -24,8 +24,16 @@ ncytm is a fork of [ncspot](https://github.com/hrkfdn/ncspot), an ncurses Spotif
 - One logical change per commit
 - Commits should leave the codebase in a working state
 - Write descriptive commit messages explaining WHY, not just WHAT
-- **AI should NOT run `git commit`** - prepare changes and let the user validate and commit
-- AI should run `git status` and `git diff` to show what changed, then suggest a commit message
+- **AI should run `git add` and `git commit`** after making changes to trigger linting/formatting hooks
+- Use **Conventional Commits** format for commit messages:
+  - `feat: <description>` - New feature
+  - `fix: <description>` - Bug fix
+  - `refactor: <description>` - Code refactoring
+  - `docs: <description>` - Documentation changes
+  - `test: <description>` - Test additions/changes
+  - `chore: <description>` - Maintenance tasks
+  - `style: <description>` - Formatting, styling changes
+- Husky pre-commit hooks will run automatically to ensure code quality
 
 ### 4. Documentation
 - Update this skill file when new principles are established
@@ -172,6 +180,28 @@ See `IMPLEMENTATION_PLAN.md` for the detailed, phased implementation plan.
 - Tests: `src/*/tests.rs` or `tests/`
 - Documentation: `doc/`
 
+## Post-Change Workflow
+
+After making code changes, the AI should:
+
+1. **Build and test** to verify changes work:
+   ```bash
+   cargo build && cargo test
+   ```
+
+2. **Stage and commit** with conventional commit format:
+   ```bash
+   git add -A
+   git commit -m "<type>: <description>"
+   ```
+   
+   This triggers husky pre-commit hooks which run:
+   - Code formatting (`cargo fmt`)
+   - Linting (`cargo clippy`)
+   - Any other configured checks
+
+3. If the commit fails due to formatting/linting issues, fix them and retry.
+
 ## Useful Commands
 
 ```bash
@@ -186,6 +216,15 @@ cargo run -- -d debug.log
 
 # Build release
 cargo build --release
+
+# Format code manually
+cargo fmt
+
+# Run clippy linter
+cargo clippy
+
+# Stage and commit (triggers hooks)
+git add -A && git commit -m "feat: description"
 ```
 
 ## Dependencies to Add (planned)

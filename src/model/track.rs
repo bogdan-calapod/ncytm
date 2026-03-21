@@ -156,10 +156,8 @@ impl ListItem for Track {
         queue: Arc<Queue>,
         library: Arc<Library>,
     ) -> Option<Box<dyn ViewExt>> {
-        let spotify = queue.get_spotify();
-
         let recommendations: Vec<Self> = if let Some(id) = &self.id {
-            spotify.api.recommendations(Some(vec![id.clone()]), None)
+            library.get_radio_tracks(id)
         } else {
             Vec::new()
         };
@@ -174,7 +172,7 @@ impl ListItem for Track {
                     library.clone(),
                 )
                 .with_title(&format!(
-                    "Similar to \"{} - {}\"",
+                    "Radio: {} - {}",
                     self.artists.join(", "),
                     self.title
                 ))

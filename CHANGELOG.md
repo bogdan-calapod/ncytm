@@ -11,11 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fork of ncspot to create ncytm (YouTube Music client)
 - Updated documentation and branding for ncytm
+- Radio/similar tracks feature using YouTube Music's automix functionality
+  - Get similar tracks for any song, album, or playlist
+  - Uses YouTube Music's "next" API endpoint for generating radio playlists
 
 ### Changed
 
 - Renamed project from ncspot to ncytm
 - Updated all documentation to reflect YouTube Music focus
+- Updated CI configuration and dependencies
+- Added husky pre-commit hooks for code quality
 
 ---
 
