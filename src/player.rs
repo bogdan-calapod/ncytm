@@ -266,6 +266,14 @@ impl Player {
     pub fn volume(&self) -> f32 {
         self.volume
     }
+
+    /// Check if the current track has finished playing.
+    ///
+    /// Returns `true` if the audio sink is empty (no more audio to play),
+    /// or if no track is loaded.
+    pub fn is_finished(&self) -> bool {
+        self.sink.as_ref().map(|s| s.empty()).unwrap_or(true)
+    }
 }
 
 impl Drop for Player {

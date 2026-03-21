@@ -112,6 +112,8 @@ pub struct Spotify {
     cookies: Arc<RwLock<Option<Cookies>>>,
     command_tx: Arc<RwLock<Option<Sender<PlayerCommand>>>>,
     current_track: Arc<RwLock<Option<Playable>>>,
+    /// Flag indicating the current track has finished playing.
+    track_finished: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Spotify {
@@ -130,6 +132,7 @@ impl Spotify {
             cookies: Arc::new(RwLock::new(None)),
             command_tx: Arc::new(RwLock::new(None)),
             current_track: Arc::new(RwLock::new(None)),
+            track_finished: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -155,6 +158,7 @@ impl Spotify {
             cookies: Arc::new(RwLock::new(None)),
             command_tx: Arc::new(RwLock::new(None)),
             current_track: Arc::new(RwLock::new(None)),
+            track_finished: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
     }
 
@@ -178,13 +182,21 @@ impl Spotify {
         let status = self.status.clone();
         let since = self.since.clone();
         let events = self.events.clone();
+        let track_finished = self.track_finished.clone();
 
         thread::spawn(move || {
-            run_player_thread(cookies, command_rx, status, since, events);
+            run_player_thread(cookies, command_rx, status, since, events, track_finished);
         });
 
         dlog("Player worker thread started");
         Ok(())
+    }
+
+    /// Check if the current track has finished playing and reset the flag.
+    /// Returns `true` if the track finished, `false` otherwise.
+    pub fn take_track_finished(&self) -> bool {
+        self.track_finished
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
     }
 
     #[cfg(feature = "mpris")]
@@ -316,6 +328,7 @@ fn run_player_thread(
     status: Arc<RwLock<PlayerEvent>>,
     since: Arc<RwLock<Option<SystemTime>>>,
     events: EventManager,
+    track_finished: Arc<std::sync::atomic::AtomicBool>,
 ) {
     dlog("Player thread starting");
 
@@ -428,6 +441,12 @@ fn run_player_thread(
                 // This updates the progress bar and elapsed time display
                 let current_status = status.read().unwrap().clone();
                 if matches!(current_status, PlayerEvent::Playing(_)) {
+                    // Check if track has finished playing
+                    if player.is_finished() {
+                        dlog("Track finished - setting flag for main thread");
+                        *status.write().unwrap() = PlayerEvent::Stopped;
+                        track_finished.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
                     events.trigger();
                 }
             }

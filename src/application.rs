@@ -592,6 +592,12 @@ impl Application {
                 }
             }
 
+            // Check if track finished and advance to next
+            if self.spotify.take_track_finished() {
+                log::debug!("Track finished, advancing to next");
+                self.queue.next(false);
+            }
+
             #[cfg(unix)]
             for signal in signals.pending() {
                 if signal == SIGTERM || signal == SIGHUP {
