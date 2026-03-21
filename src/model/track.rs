@@ -156,18 +156,26 @@ impl ListItem for Track {
         queue: Arc<Queue>,
         library: Arc<Library>,
     ) -> Option<Box<dyn ViewExt>> {
-        let recommendations: Vec<Self> = if let Some(id) = &self.id {
+        let recommended: Vec<Self> = if let Some(id) = &self.id {
             library.get_radio_tracks(id)
         } else {
             Vec::new()
         };
 
-        if recommendations.is_empty() {
+        if recommended.is_empty() {
             None
         } else {
+            // Start with the seed track, then add recommended tracks
+            let mut tracks = vec![self.clone()];
+            tracks.extend(recommended);
+            // Update list indices
+            for (i, track) in tracks.iter_mut().enumerate() {
+                track.list_index = i;
+            }
+
             Some(
                 ListView::new(
-                    Arc::new(RwLock::new(recommendations)),
+                    Arc::new(RwLock::new(tracks)),
                     queue.clone(),
                     library.clone(),
                 )

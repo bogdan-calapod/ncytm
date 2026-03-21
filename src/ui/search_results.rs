@@ -1,3 +1,8 @@
+use std::sync::{Arc, RwLock};
+
+use cursive::Cursive;
+use cursive::view::ViewWrapper;
+
 use crate::application::ASYNC_RUNTIME;
 use crate::command::Command;
 use crate::commands::CommandResult;
@@ -5,9 +10,7 @@ use crate::events::EventManager;
 use crate::library::Library;
 use crate::model::album::Album;
 use crate::model::artist::Artist;
-use crate::model::episode::Episode;
 use crate::model::playlist::Playlist;
-use crate::model::show::Show;
 use crate::model::track::Track;
 use crate::queue::Queue;
 use crate::spotify::{Spotify, UriType};
@@ -16,27 +19,16 @@ use crate::ui::listview::ListView;
 use crate::ui::pagination::Pagination;
 use crate::ui::tabbedview::TabbedView;
 use crate::youtube_url::YouTubeUrl;
-use cursive::Cursive;
-use cursive::view::ViewWrapper;
-
-use std::sync::{Arc, RwLock};
 
 pub struct SearchResultsView {
     search_term: String,
     results_tracks: Arc<RwLock<Vec<Track>>>,
-    pagination_tracks: Pagination<Track>,
     results_albums: Arc<RwLock<Vec<Album>>>,
-    pagination_albums: Pagination<Album>,
     results_artists: Arc<RwLock<Vec<Artist>>>,
-    pagination_artists: Pagination<Artist>,
     results_playlists: Arc<RwLock<Vec<Playlist>>>,
-    pagination_playlists: Pagination<Playlist>,
-    results_shows: Arc<RwLock<Vec<Show>>>,
-    pagination_shows: Pagination<Show>,
-    results_episodes: Arc<RwLock<Vec<Episode>>>,
-    pagination_episodes: Pagination<Episode>,
     tabs: TabbedView,
     spotify: Spotify,
+    library: Arc<Library>,
     events: EventManager,
 }
 
@@ -54,47 +46,28 @@ impl SearchResultsView {
         let results_albums = Arc::new(RwLock::new(Vec::new()));
         let results_artists = Arc::new(RwLock::new(Vec::new()));
         let results_playlists = Arc::new(RwLock::new(Vec::new()));
-        let results_shows = Arc::new(RwLock::new(Vec::new()));
-        let results_episodes = Arc::new(RwLock::new(Vec::new()));
 
         let list_tracks = ListView::new(results_tracks.clone(), queue.clone(), library.clone());
-        let pagination_tracks = list_tracks.get_pagination().clone();
         let list_albums = ListView::new(results_albums.clone(), queue.clone(), library.clone());
-        let pagination_albums = list_albums.get_pagination().clone();
         let list_artists = ListView::new(results_artists.clone(), queue.clone(), library.clone());
-        let pagination_artists = list_artists.get_pagination().clone();
         let list_playlists =
             ListView::new(results_playlists.clone(), queue.clone(), library.clone());
-        let pagination_playlists = list_playlists.get_pagination().clone();
-        let list_shows = ListView::new(results_shows.clone(), queue.clone(), library.clone());
-        let pagination_shows = list_shows.get_pagination().clone();
-        let list_episodes = ListView::new(results_episodes.clone(), queue.clone(), library);
-        let pagination_episodes = list_episodes.get_pagination().clone();
 
         let mut tabs = TabbedView::new();
         tabs.add_tab("Tracks", list_tracks);
         tabs.add_tab("Albums", list_albums);
         tabs.add_tab("Artists", list_artists);
         tabs.add_tab("Playlists", list_playlists);
-        // Shows and Episodes tabs removed - YouTube Music doesn't have podcasts
-        let _ = (list_shows, list_episodes); // Suppress unused warnings
 
         let mut view = Self {
             search_term,
             results_tracks,
-            pagination_tracks,
             results_albums,
-            pagination_albums,
             results_artists,
-            pagination_artists,
             results_playlists,
-            pagination_playlists,
-            results_shows,
-            pagination_shows,
-            results_episodes,
-            pagination_episodes,
             tabs,
             spotify: queue.get_spotify(),
+            library,
             events,
         };
 
@@ -117,26 +90,6 @@ impl SearchResultsView {
         0
     }
 
-    fn search_track(
-        spotify: &Spotify,
-        tracks: &Arc<RwLock<Vec<Track>>>,
-        query: &str,
-        offset: usize,
-        append: bool,
-    ) -> u32 {
-        let results = spotify.api.search(query, 50, offset as u32);
-        let total = results.tracks.len() as u32;
-        if total > 0 {
-            let mut r = tracks.write().unwrap();
-            if append {
-                r.extend(results.tracks);
-            } else {
-                *r = results.tracks;
-            }
-        }
-        total
-    }
-
     fn get_album(
         spotify: &Spotify,
         albums: &Arc<RwLock<Vec<Album>>>,
@@ -150,26 +103,6 @@ impl SearchResultsView {
             return 1;
         }
         0
-    }
-
-    fn search_album(
-        spotify: &Spotify,
-        albums: &Arc<RwLock<Vec<Album>>>,
-        query: &str,
-        offset: usize,
-        append: bool,
-    ) -> u32 {
-        let results = spotify.api.search(query, 50, offset as u32);
-        let total = results.albums.len() as u32;
-        if total > 0 {
-            let mut r = albums.write().unwrap();
-            if append {
-                r.extend(results.albums);
-            } else {
-                *r = results.albums;
-            }
-        }
-        total
     }
 
     fn get_artist(
@@ -187,26 +120,6 @@ impl SearchResultsView {
         0
     }
 
-    fn search_artist(
-        spotify: &Spotify,
-        artists: &Arc<RwLock<Vec<Artist>>>,
-        query: &str,
-        offset: usize,
-        append: bool,
-    ) -> u32 {
-        let results = spotify.api.search(query, 50, offset as u32);
-        let total = results.artists.len() as u32;
-        if total > 0 {
-            let mut r = artists.write().unwrap();
-            if append {
-                r.extend(results.artists);
-            } else {
-                *r = results.artists;
-            }
-        }
-        total
-    }
-
     fn get_playlist(
         spotify: &Spotify,
         playlists: &Arc<RwLock<Vec<Playlist>>>,
@@ -220,96 +133,6 @@ impl SearchResultsView {
             return 1;
         }
         0
-    }
-
-    fn search_playlist(
-        spotify: &Spotify,
-        playlists: &Arc<RwLock<Vec<Playlist>>>,
-        query: &str,
-        offset: usize,
-        append: bool,
-    ) -> u32 {
-        let results = spotify.api.search(query, 50, offset as u32);
-        let total = results.playlists.len() as u32;
-        if total > 0 {
-            let mut r = playlists.write().unwrap();
-            if append {
-                r.extend(results.playlists);
-            } else {
-                *r = results.playlists;
-            }
-        }
-        total
-    }
-
-    fn get_show(
-        spotify: &Spotify,
-        shows: &Arc<RwLock<Vec<Show>>>,
-        query: &str,
-        _offset: usize,
-        _append: bool,
-    ) -> u32 {
-        if let Some(result) = spotify.api.show(query) {
-            let mut r = shows.write().unwrap();
-            *r = vec![result];
-            return 1;
-        }
-        0
-    }
-
-    fn search_show(
-        spotify: &Spotify,
-        shows: &Arc<RwLock<Vec<Show>>>,
-        query: &str,
-        offset: usize,
-        append: bool,
-    ) -> u32 {
-        let results = spotify.api.search(query, 50, offset as u32);
-        let total = results.shows.len() as u32;
-        if total > 0 {
-            let mut r = shows.write().unwrap();
-            if append {
-                r.extend(results.shows);
-            } else {
-                *r = results.shows;
-            }
-        }
-        total
-    }
-
-    fn get_episode(
-        spotify: &Spotify,
-        episodes: &Arc<RwLock<Vec<Episode>>>,
-        query: &str,
-        _offset: usize,
-        _append: bool,
-    ) -> u32 {
-        if let Some(result) = spotify.api.episode(query) {
-            let mut r = episodes.write().unwrap();
-            *r = vec![result];
-            return 1;
-        }
-        0
-    }
-
-    fn search_episode(
-        spotify: &Spotify,
-        episodes: &Arc<RwLock<Vec<Episode>>>,
-        query: &str,
-        offset: usize,
-        append: bool,
-    ) -> u32 {
-        let results = spotify.api.search(query, 50, offset as u32);
-        let total = results.episodes.len() as u32;
-        if total > 0 {
-            let mut r = episodes.write().unwrap();
-            if append {
-                r.extend(results.episodes);
-            } else {
-                *r = results.episodes;
-            }
-        }
-        total
     }
 
     fn perform_search<I: ListItem + Clone>(
@@ -399,24 +222,8 @@ impl SearchResultsView {
                     );
                     self.tabs.set_selected(3);
                 }
-                UriType::Show => {
-                    self.perform_search(
-                        Box::new(Self::get_show),
-                        &self.results_shows,
-                        &query,
-                        None,
-                    );
-                    self.tabs.set_selected(4);
-                }
-                UriType::Episode => {
-                    self.perform_search(
-                        Box::new(Self::get_episode),
-                        &self.results_episodes,
-                        &query,
-                        None,
-                    );
-                    self.tabs.set_selected(5);
-                }
+                // Shows and Episodes not supported in YouTube Music
+                UriType::Show | UriType::Episode => {}
             }
         // Is the query a YouTube Music URL?
         // https://music.youtube.com/watch?v=dQw4w9WgXcQ
@@ -458,63 +265,71 @@ impl SearchResultsView {
                     );
                     self.tabs.set_selected(3);
                 }
-                UriType::Show => {
-                    self.perform_search(
-                        Box::new(Self::get_show),
-                        &self.results_shows,
-                        &url.id,
-                        None,
-                    );
-                    self.tabs.set_selected(4);
-                }
-                UriType::Episode => {
-                    self.perform_search(
-                        Box::new(Self::get_episode),
-                        &self.results_episodes,
-                        &url.id,
-                        None,
-                    );
-                    self.tabs.set_selected(5);
-                }
+                // Shows and Episodes not supported in YouTube Music
+                UriType::Show | UriType::Episode => {}
             }
         } else {
-            self.perform_search(
-                Box::new(Self::search_track),
-                &self.results_tracks,
-                &query,
-                Some(&self.pagination_tracks),
-            );
-            self.perform_search(
-                Box::new(Self::search_album),
-                &self.results_albums,
-                &query,
-                Some(&self.pagination_albums),
-            );
-            self.perform_search(
-                Box::new(Self::search_artist),
-                &self.results_artists,
-                &query,
-                Some(&self.pagination_artists),
-            );
-            self.perform_search(
-                Box::new(Self::search_playlist),
-                &self.results_playlists,
-                &query,
-                Some(&self.pagination_playlists),
-            );
-            self.perform_search(
-                Box::new(Self::search_show),
-                &self.results_shows,
-                &query,
-                Some(&self.pagination_shows),
-            );
-            self.perform_search(
-                Box::new(Self::search_episode),
-                &self.results_episodes,
-                &query,
-                Some(&self.pagination_episodes),
-            );
+            // Use YouTube Music search via Library
+            self.perform_yt_search(&query);
         }
+    }
+
+    /// Perform YouTube Music search using the Library's search method.
+    fn perform_yt_search(&self, query: &str) {
+        let library = self.library.clone();
+        let query = query.to_owned();
+        let results_tracks = self.results_tracks.clone();
+        let results_albums = self.results_albums.clone();
+        let results_artists = self.results_artists.clone();
+        let results_playlists = self.results_playlists.clone();
+        let ev = self.events.clone();
+
+        std::thread::spawn(move || {
+            let search_results = library.search(&query);
+
+            // Convert and store tracks
+            {
+                let tracks: Vec<Track> = search_results
+                    .tracks
+                    .iter()
+                    .enumerate()
+                    .map(|(i, t)| Library::search_track_to_track(t, i))
+                    .collect();
+                *results_tracks.write().unwrap() = tracks;
+            }
+
+            // Convert and store albums
+            {
+                let albums: Vec<Album> = search_results
+                    .albums
+                    .iter()
+                    .map(Library::search_album_to_album)
+                    .collect();
+                *results_albums.write().unwrap() = albums;
+            }
+
+            // Convert and store artists
+            {
+                let artists: Vec<Artist> = search_results
+                    .artists
+                    .iter()
+                    .map(Library::search_artist_to_artist)
+                    .collect();
+                *results_artists.write().unwrap() = artists;
+            }
+
+            // Convert and store playlists
+            {
+                let playlists: Vec<Playlist> = search_results
+                    .playlists
+                    .iter()
+                    .map(Library::search_playlist_to_playlist)
+                    .collect();
+                *results_playlists.write().unwrap() = playlists;
+            }
+
+            ev.trigger();
+        });
     }
 }
 

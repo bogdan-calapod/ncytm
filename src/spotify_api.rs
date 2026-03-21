@@ -13,17 +13,6 @@ use crate::model::show::Show;
 use crate::model::track::Track;
 use crate::ui::pagination::{ApiPage, ApiResult};
 
-/// Search result containing all types of search results.
-#[derive(Clone, Debug, Default)]
-pub struct SearchResult {
-    pub tracks: Vec<Track>,
-    pub albums: Vec<Album>,
-    pub artists: Vec<Artist>,
-    pub playlists: Vec<Playlist>,
-    pub shows: Vec<Show>,
-    pub episodes: Vec<Episode>,
-}
-
 /// API page with next cursor for pagination.
 #[derive(Clone, Debug, Default)]
 pub struct CursorPage<T> {
@@ -102,12 +91,6 @@ impl WebApi {
     pub fn update_token(&self) -> Option<impl std::future::Future<Output = Result<(), String>>> {
         // Stub: no token refresh needed
         None::<std::future::Ready<Result<(), String>>>
-    }
-
-    // Search
-    pub fn search(&self, _query: &str, _limit: u32, _offset: u32) -> SearchResult {
-        info!("search stubbed");
-        SearchResult::default()
     }
 
     // Library methods

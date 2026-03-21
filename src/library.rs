@@ -23,8 +23,9 @@ use crate::spotify::Spotify;
 use crate::youtube_music::{
     YouTubeMusicClient,
     api::{
-        LibraryAlbum, LibraryPlaylist, LibraryTrack, RadioTrack, get_library_albums,
-        get_library_playlists, get_liked_songs, get_radio,
+        LibraryAlbum, LibraryPlaylist, LibraryTrack, RadioTrack, SearchAlbum, SearchArtist,
+        SearchPlaylist, SearchResults, SearchTrack, get_library_albums, get_library_playlists,
+        get_liked_songs, get_radio, search,
     },
 };
 
@@ -850,6 +851,127 @@ impl Library {
         } else {
             debug!("No YouTube Music client available for radio");
             Vec::new()
+        }
+    }
+
+    /// Search YouTube Music for tracks, albums, artists, and playlists.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - The search query string
+    ///
+    /// # Returns
+    ///
+    /// Search results containing tracks, albums, artists, and playlists.
+    pub fn search(&self, query: &str) -> SearchResults {
+        if let Some(ref client) = self.yt_client {
+            let runtime = match Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    error!("Failed to create runtime for search: {}", e);
+                    return SearchResults::default();
+                }
+            };
+
+            match runtime.block_on(search(client, query)) {
+                Ok(results) => {
+                    info!(
+                        "Search results for '{}': {} tracks, {} albums, {} artists, {} playlists",
+                        query,
+                        results.tracks.len(),
+                        results.albums.len(),
+                        results.artists.len(),
+                        results.playlists.len()
+                    );
+                    results
+                }
+                Err(e) => {
+                    error!("Failed to search: {:?}", e);
+                    SearchResults::default()
+                }
+            }
+        } else {
+            debug!("No YouTube Music client available for search");
+            SearchResults::default()
+        }
+    }
+
+    /// Convert a SearchTrack from the API to our Track model.
+    pub fn search_track_to_track(search_track: &SearchTrack, index: usize) -> Track {
+        Track {
+            id: Some(search_track.video_id.clone()),
+            title: search_track.title.clone(),
+            duration: search_track.duration_seconds.unwrap_or(0),
+            artists: search_track
+                .artists
+                .iter()
+                .map(|a| a.name.clone())
+                .collect(),
+            artist_ids: search_track
+                .artists
+                .iter()
+                .filter_map(|a| a.browse_id.clone())
+                .collect(),
+            album: search_track.album.as_ref().map(|a| a.title.clone()),
+            album_id: search_track
+                .album
+                .as_ref()
+                .and_then(|a| a.browse_id.clone()),
+            cover_url: search_track.thumbnail_url.clone(),
+            added_at: None,
+            list_index: index,
+            is_explicit: search_track.is_explicit,
+            set_video_id: None,
+        }
+    }
+
+    /// Convert a SearchAlbum from the API to our Album model.
+    pub fn search_album_to_album(search_album: &SearchAlbum) -> Album {
+        Album {
+            id: Some(search_album.browse_id.clone()),
+            title: search_album.title.clone(),
+            artists: search_album
+                .artists
+                .iter()
+                .map(|a| a.name.clone())
+                .collect(),
+            artist_ids: search_album
+                .artists
+                .iter()
+                .filter_map(|a| a.browse_id.clone())
+                .collect(),
+            year: search_album.year.clone().unwrap_or_default(),
+            cover_url: search_album.thumbnail_url.clone(),
+            tracks: None,
+            added_at: None,
+            audio_playlist_id: None,
+            is_explicit: search_album.is_explicit,
+        }
+    }
+
+    /// Convert a SearchArtist from the API to our Artist model.
+    pub fn search_artist_to_artist(search_artist: &SearchArtist) -> Artist {
+        Artist {
+            id: Some(search_artist.browse_id.clone()),
+            name: search_artist.name.clone(),
+            thumbnail_url: search_artist.thumbnail_url.clone(),
+            tracks: None,
+            is_followed: false,
+            subscribers: search_artist.subscribers.clone(),
+        }
+    }
+
+    /// Convert a SearchPlaylist from the API to our Playlist model.
+    pub fn search_playlist_to_playlist(search_playlist: &SearchPlaylist) -> Playlist {
+        Playlist {
+            id: search_playlist.browse_id.clone(),
+            name: search_playlist.title.clone(),
+            owner_id: String::new(),
+            owner_name: search_playlist.author.clone(),
+            num_tracks: 0,
+            tracks: None,
+            thumbnail_url: search_playlist.thumbnail_url.clone(),
+            description: None,
         }
     }
 
