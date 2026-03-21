@@ -73,6 +73,8 @@ impl FromStr for UriType {
 /// Events sent by the Player.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum PlayerEvent {
+    /// Track is being fetched/buffered.
+    Loading,
     Playing(SystemTime),
     Paused(Duration),
     Stopped,
@@ -235,6 +237,10 @@ impl Spotify {
 
         dlog(&format!("Loading track: {}", video_id));
         *self.current_track.write().unwrap() = Some(track.clone());
+
+        // Set loading state immediately so UI shows spinner
+        *self.status.write().unwrap() = PlayerEvent::Loading;
+        self.events.trigger();
 
         if let Some(ref tx) = *self.command_tx.read().unwrap() {
             dlog("Sending load command to player thread");

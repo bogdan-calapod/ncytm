@@ -50,14 +50,16 @@ impl StatusBar {
         const NF_PLAY: &str = "\u{f04b} ";
         const NF_PAUSE: &str = "\u{f04c} ";
         const NF_STOP: &str = "\u{f04d} ";
+        const NF_LOADING: &str = "\u{f110} "; // Nerd font spinner
         let indicators = match (nerdfont, flipped) {
-            (false, false) => ("▶ ", "▮▮", "◼ "),
-            (false, true) => ("▮▮", "▶ ", "▶ "),
-            (true, false) => (NF_PLAY, NF_PAUSE, NF_STOP),
-            (true, true) => (NF_PAUSE, NF_PLAY, NF_PLAY),
+            (false, false) => ("▶ ", "▮▮", "◼ ", "⟳ "),
+            (false, true) => ("▮▮", "▶ ", "▶ ", "⟳ "),
+            (true, false) => (NF_PLAY, NF_PAUSE, NF_STOP, NF_LOADING),
+            (true, true) => (NF_PAUSE, NF_PLAY, NF_PLAY, NF_LOADING),
         };
 
         match status {
+            PlayerEvent::Loading => indicators.3,
             PlayerEvent::Playing(_) => indicators.0,
             PlayerEvent::Paused(_) => indicators.1,
             PlayerEvent::Stopped => indicators.2,

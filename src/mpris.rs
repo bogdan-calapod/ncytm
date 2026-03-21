@@ -81,9 +81,10 @@ impl MprisPlayer {
     #[zbus(property)]
     fn playback_status(&self) -> &str {
         match self.spotify.get_current_status() {
-            PlayerEvent::Playing(_) => "Playing",
+            // Loading is reported as Playing since we're about to play
+            PlayerEvent::Loading | PlayerEvent::Playing(_) => "Playing",
             PlayerEvent::Paused(_) => "Paused",
-            _ => "Stopped",
+            PlayerEvent::Stopped => "Stopped",
         }
     }
 

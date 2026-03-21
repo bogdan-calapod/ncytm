@@ -320,7 +320,7 @@ impl Queue {
     /// play the next song if one is available, or restart from the start.
     pub fn toggleplayback(&self) {
         match self.spotify.get_current_status() {
-            PlayerEvent::Playing(_) | PlayerEvent::Paused(_) => {
+            PlayerEvent::Loading | PlayerEvent::Playing(_) | PlayerEvent::Paused(_) => {
                 self.spotify.toggleplayback();
             }
             PlayerEvent::Stopped => match self.next_index() {
