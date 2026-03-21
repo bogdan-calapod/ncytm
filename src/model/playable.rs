@@ -102,6 +102,13 @@ impl Playable {
         seconds_to_hms(self.duration())
     }
 
+    pub fn title(&self) -> String {
+        match self {
+            Self::Track(track) => track.title.clone(),
+            Self::Episode(episode) => episode.name.clone(),
+        }
+    }
+
     pub fn as_listitem(&self) -> Box<dyn ListItem> {
         match self {
             Self::Track(track) => track.as_listitem(),

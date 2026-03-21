@@ -236,6 +236,12 @@ impl Spotify {
         };
 
         dlog(&format!("Loading track: {}", video_id));
+
+        // Pause current playback before loading new track
+        if let Some(ref tx) = *self.command_tx.read().unwrap() {
+            let _ = tx.send(PlayerCommand::Pause);
+        }
+
         *self.current_track.write().unwrap() = Some(track.clone());
 
         // Set loading state immediately so UI shows spinner

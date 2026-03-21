@@ -185,7 +185,14 @@ impl View for StatusBar {
 
         printer.with_color(style, |printer| {
             if let Some(ref t) = self.queue.get_current() {
-                let track_info = self.format_track(t);
+                // Show "Loading track {name}..." when loading, otherwise show normal track info
+                let track_info =
+                    if matches!(self.spotify.get_current_status(), PlayerEvent::Loading) {
+                        format!("Loading {}...", t.title())
+                    } else {
+                        self.format_track(t)
+                    };
+
                 // Calculate available space for track info (leave room for right-side content)
                 let left_start = 4; // playback indicator takes ~4 chars
                 let available_width = offset.saturating_sub(left_start + 1);
