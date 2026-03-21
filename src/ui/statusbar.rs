@@ -185,7 +185,29 @@ impl View for StatusBar {
 
         printer.with_color(style, |printer| {
             if let Some(ref t) = self.queue.get_current() {
-                printer.print((4, 1), &self.format_track(t));
+                let track_info = self.format_track(t);
+                // Calculate available space for track info (leave room for right-side content)
+                let left_start = 4; // playback indicator takes ~4 chars
+                let available_width = offset.saturating_sub(left_start + 1);
+
+                // Truncate track info if it's too long
+                if track_info.width() > available_width && available_width > 3 {
+                    // Find a good cut point that respects character boundaries
+                    let mut truncated = String::new();
+                    let mut current_width = 0;
+                    for c in track_info.chars() {
+                        let char_width = unicode_width::UnicodeWidthChar::width(c).unwrap_or(1);
+                        if current_width + char_width + 2 > available_width {
+                            break;
+                        }
+                        truncated.push(c);
+                        current_width += char_width;
+                    }
+                    truncated.push_str("..");
+                    printer.print((left_start, 1), &truncated);
+                } else {
+                    printer.print((left_start, 1), &track_info);
+                }
             }
             printer.print((offset, 1), &right);
         });
