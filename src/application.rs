@@ -83,6 +83,9 @@ pub struct Application {
     /// macOS media control events receiver
     #[cfg(all(target_os = "macos", feature = "media_control"))]
     media_events: Option<std::sync::mpsc::Receiver<MediaControlEvent>>,
+    /// Last known track ID for detecting track changes (used to update media metadata)
+    #[cfg(all(target_os = "macos", feature = "media_control"))]
+    last_track_id: Option<String>,
 }
 
 impl Application {
@@ -323,6 +326,8 @@ impl Application {
             media_handle,
             #[cfg(all(target_os = "macos", feature = "media_control"))]
             media_events,
+            #[cfg(all(target_os = "macos", feature = "media_control"))]
+            last_track_id: None,
         })
     }
 
@@ -596,6 +601,16 @@ impl Application {
             if self.spotify.take_track_finished() {
                 log::debug!("Track finished, advancing to next");
                 self.queue.next(false);
+            }
+
+            // Check if current track changed and update media metadata
+            #[cfg(all(target_os = "macos", feature = "media_control"))]
+            {
+                let current_track_id = self.queue.get_current().and_then(|p| p.id());
+                if current_track_id != self.last_track_id {
+                    self.last_track_id = current_track_id;
+                    self.update_media_metadata();
+                }
             }
 
             #[cfg(unix)]
