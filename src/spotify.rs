@@ -351,8 +351,12 @@ fn run_player_thread(
 
     dlog("Player thread ready, waiting for commands");
 
+    // UI refresh interval (400ms provides smooth progress bar updates)
+    let ui_refresh_interval = Duration::from_millis(400);
+
     loop {
-        match command_rx.recv() {
+        // Use recv_timeout to allow periodic UI refresh during playback
+        match command_rx.recv_timeout(ui_refresh_interval) {
             Ok(cmd) => {
                 dlog(&format!("Received command: {:?}", cmd));
                 match cmd {
@@ -419,7 +423,15 @@ fn run_player_thread(
                     }
                 }
             }
-            Err(_) => {
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // Periodically trigger UI refresh while playing
+                // This updates the progress bar and elapsed time display
+                let current_status = status.read().unwrap().clone();
+                if matches!(current_status, PlayerEvent::Playing(_)) {
+                    events.trigger();
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 dlog("Command channel closed");
                 break;
             }
