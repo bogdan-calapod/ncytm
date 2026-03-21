@@ -104,6 +104,11 @@ share_clipboard = ["arboard", "arboard/wayland-data-control"] # Share a link to 
 share_selection = ["arboard", "arboard/wayland-data-control"] # Use the primary selection for sharing - linux and bsd only
 termion_backend = ["cursive/termion-backend"]
 
+[dev-dependencies.cargo-husky]
+version = "1.5.0"
+default-features = false
+features = ["precommit-hook", "run-cargo-fmt", "run-cargo-clippy"]
+
 [package.metadata.deb]
 assets = [
   ["target/release/ncytm", "usr/bin/", "755"],
