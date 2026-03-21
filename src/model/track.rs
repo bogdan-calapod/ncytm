@@ -197,11 +197,19 @@ impl ListItem for Track {
     }
 
     fn artists(&self) -> Option<Vec<Artist>> {
+        if self.artists.is_empty() {
+            return None;
+        }
+        // Create Artist objects for each artist name
+        // Use corresponding ID if available, otherwise use empty string
         Some(
-            self.artist_ids
+            self.artists
                 .iter()
-                .zip(self.artists.iter())
-                .map(|(id, name)| Artist::new(id.clone(), name.clone()))
+                .enumerate()
+                .map(|(i, name)| {
+                    let id = self.artist_ids.get(i).cloned().unwrap_or_default();
+                    Artist::new(id, name.clone())
+                })
                 .collect(),
         )
     }
