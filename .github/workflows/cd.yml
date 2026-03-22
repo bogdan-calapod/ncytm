@@ -37,24 +37,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         name: Checkout src
-      - name: Extract version from tag
-        id: version
-        shell: bash
-        run: |
-          TAG=${GITHUB_REF#refs/tags/}
-          VERSION=${TAG#v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-      - name: Update Cargo.toml version
-        shell: bash
-        run: |
-          # Cross-platform sed in-place edit
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' 's/^version = ".*"/version = "${{ steps.version.outputs.version }}"/' Cargo.toml
-          else
-            sed -i 's/^version = ".*"/version = "${{ steps.version.outputs.version }}"/' Cargo.toml
-          fi
-          echo "Updated Cargo.toml to version ${{ steps.version.outputs.version }}"
-          grep '^version' Cargo.toml
       - name: Install rustup
         if: runner.os != 'Windows'
         shell: bash
