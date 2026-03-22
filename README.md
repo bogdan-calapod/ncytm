@@ -53,7 +53,33 @@ The binary will be at `target/release/ncytm`.
 
 ## Authentication
 
-ncytm uses cookie-based authentication. You'll need to export your YouTube Music cookies from your browser:
+ncytm uses cookie-based authentication. The easiest way to authenticate is using the built-in browser authentication:
+
+### Browser Authentication (Recommended)
+
+```bash
+ncytm auth --browser
+```
+
+This will open your default browser (Edge) where you can log in to YouTube Music. Once authenticated, cookies are automatically extracted and saved.
+
+**Options:**
+- `--browser-type <TYPE>` - Use a different browser: `chrome`, `edge`, or `chromium` (default: `edge`)
+- `--no-system-profile` - Use a separate ncytm browser profile instead of your system profile
+- `--timeout <SECONDS>` - Timeout for authentication (default: 600 seconds)
+
+**Examples:**
+```bash
+# Use Chrome instead of Edge
+ncytm auth --browser --browser-type chrome
+
+# Check if your current cookies are still valid
+ncytm auth --check
+```
+
+### Manual Cookie Export
+
+Alternatively, you can manually export cookies from your browser:
 
 1. Install a browser extension to export cookies (e.g., "Get cookies.txt LOCALLY" for Chrome/Firefox)
 2. Go to [music.youtube.com](https://music.youtube.com) and sign in

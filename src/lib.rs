@@ -41,5 +41,43 @@ pub fn program_arguments() -> clap::Command {
                 .help("Filename of config file in basepath")
                 .default_value(CONFIGURATION_FILE_NAME),
         )
-        .subcommands([clap::Command::new("info").about("Print platform information like paths")])
+        .subcommands([
+            clap::Command::new("info").about("Print platform information like paths"),
+            clap::Command::new("auth")
+                .about("Manage YouTube Music authentication")
+                .arg(
+                    clap::Arg::new("browser")
+                        .long("browser")
+                        .action(clap::ArgAction::SetTrue)
+                        .help("Launch a browser to authenticate with YouTube Music"),
+                )
+                .arg(
+                    clap::Arg::new("no-system-profile")
+                        .long("no-system-profile")
+                        .action(clap::ArgAction::SetTrue)
+                        .help("Use a separate ncytm browser profile instead of system profile"),
+                )
+                .arg(
+                    clap::Arg::new("browser-type")
+                        .long("browser-type")
+                        .value_name("TYPE")
+                        .value_parser(["chrome", "edge", "chromium"])
+                        .default_value("edge")
+                        .help("Browser to use: chrome, edge, or chromium"),
+                )
+                .arg(
+                    clap::Arg::new("check")
+                        .long("check")
+                        .action(clap::ArgAction::SetTrue)
+                        .help("Check if current cookies are valid"),
+                )
+                .arg(
+                    clap::Arg::new("timeout")
+                        .long("timeout")
+                        .value_name("SECONDS")
+                        .value_parser(clap::value_parser!(u64))
+                        .default_value("600")
+                        .help("Timeout for browser authentication in seconds"),
+                ),
+        ])
 }

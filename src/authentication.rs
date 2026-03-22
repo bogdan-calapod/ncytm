@@ -146,9 +146,25 @@ fn verify_cookies(cookies: Cookies) -> Result<AuthResult, AuthError> {
 }
 
 /// Get instructions for obtaining cookies.
-pub fn get_cookie_instructions() -> &'static str {
-    r#"
-To use ncytm, you need to export your YouTube Music cookies:
+pub fn get_cookie_instructions() -> String {
+    let mut instructions = String::new();
+
+    #[cfg(feature = "browser_auth")]
+    {
+        instructions.push_str(
+            r#"
+To authenticate with YouTube Music, run:
+
+    ncytm auth --browser
+
+This will open a browser window where you can log in to your account.
+"#,
+        );
+    }
+
+    instructions.push_str(
+        r#"
+Alternatively, you can manually export cookies:
 
 1. Install a browser extension to export cookies in Netscape format:
    - Firefox: "cookies.txt" by Lennon Hill
@@ -166,8 +182,11 @@ To use ncytm, you need to export your YouTube Music cookies:
 Required cookies: SAPISID, HSID, SSID, SID, __Secure-1PSID, __Secure-3PSID
 
 Note: Cookies may expire after some time (usually weeks to months).
-If playback stops working, export fresh cookies.
-"#
+If playback stops working, re-authenticate or export fresh cookies.
+"#,
+    );
+
+    instructions
 }
 
 #[cfg(test)]
@@ -188,5 +207,7 @@ mod tests {
         let instructions = get_cookie_instructions();
         assert!(instructions.contains("SAPISID"));
         assert!(instructions.contains("cookies.txt"));
+        #[cfg(feature = "browser_auth")]
+        assert!(instructions.contains("ncytm auth --browser"));
     }
 }

@@ -12,6 +12,8 @@ use ncytm::program_arguments;
 
 mod application;
 mod authentication;
+#[cfg(feature = "browser_auth")]
+mod browser_auth;
 mod cli;
 mod command;
 mod commands;
@@ -65,6 +67,18 @@ fn main() -> Result<(), String> {
 
     match matches.subcommand() {
         Some(("info", _subcommand_matches)) => cli::info(),
+        Some(("auth", subcommand_matches)) => {
+            let browser = subcommand_matches.get_flag("browser");
+            let no_system_profile = subcommand_matches.get_flag("no-system-profile");
+            let use_system_profile = !no_system_profile; // Default to using system profile
+            let browser_type = subcommand_matches
+                .get_one::<String>("browser-type")
+                .map(|s| s.as_str())
+                .unwrap_or("edge");
+            let check = subcommand_matches.get_flag("check");
+            let timeout = *subcommand_matches.get_one::<u64>("timeout").unwrap_or(&600);
+            cli::auth(browser, use_system_profile, browser_type, check, timeout)
+        }
         Some((_, _)) => unreachable!(),
         None => {
             // On macOS with media_control, we need to run winit on the main thread
