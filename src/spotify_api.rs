@@ -1,5 +1,7 @@
-//! Stub module for Spotify Web API functionality.
-//! This will be replaced with YouTube Music API implementation.
+//! Web API functionality.
+//! Provides integration between the UI layer and YouTube Music API.
+
+use std::sync::Arc;
 
 use log::info;
 
@@ -12,6 +14,7 @@ use crate::model::playlist::Playlist;
 use crate::model::show::Show;
 use crate::model::track::Track;
 use crate::ui::pagination::{ApiPage, ApiResult};
+use crate::youtube_music::{Cookies, YouTubeMusicClient, api as yt_api};
 
 /// API page with next cursor for pagination.
 #[derive(Clone, Debug, Default)]
@@ -78,13 +81,51 @@ pub struct SavedShowsPage {
     pub next: Option<String>,
 }
 
-/// Stub WebApi - will be replaced with YouTube Music API.
-#[derive(Clone, Default)]
-pub struct WebApi {}
+/// Web API wrapper for YouTube Music.
+#[derive(Clone)]
+pub struct WebApi {
+    /// YouTube Music API client (optional, lazy-initialized).
+    client: Option<Arc<YouTubeMusicClient>>,
+}
+
+impl Default for WebApi {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl WebApi {
     pub fn new() -> Self {
-        Self {}
+        Self { client: None }
+    }
+
+    /// Create a new WebApi with a YouTube Music client.
+    #[allow(dead_code)]
+    pub fn with_client(client: YouTubeMusicClient) -> Self {
+        Self {
+            client: Some(Arc::new(client)),
+        }
+    }
+
+    /// Set the YouTube Music client.
+    #[allow(dead_code)]
+    pub fn set_client(&mut self, client: YouTubeMusicClient) {
+        self.client = Some(Arc::new(client));
+    }
+
+    /// Initialize the client from cookies if not already set.
+    pub fn init_from_cookies(&mut self, cookies: Cookies) -> Result<(), String> {
+        if self.client.is_none() {
+            let client = YouTubeMusicClient::new(cookies)
+                .map_err(|e| format!("Failed to create client: {:?}", e))?;
+            self.client = Some(Arc::new(client));
+        }
+        Ok(())
+    }
+
+    /// Get a reference to the client, if available.
+    fn get_client(&self) -> Option<&YouTubeMusicClient> {
+        self.client.as_ref().map(|c| c.as_ref())
     }
 
     /// Refresh the API token if needed.
@@ -166,24 +207,134 @@ impl WebApi {
         Err("Album stub".to_string())
     }
 
-    pub fn artist(&self, _id: &str) -> Option<Artist> {
-        None
-    }
+    pub fn artist(&self, id: &str) -> Option<Artist> {
+        let client = self.get_client()?;
 
-    pub fn artist_albums(&self, _id: &str, _limit: u32, _offset: u32) -> ApiPage<Album> {
-        ApiPage {
-            offset: 0,
-            total: 0,
-            items: Vec::new(),
+        let rt = tokio::runtime::Runtime::new().ok()?;
+        let result = rt.block_on(async { yt_api::get_artist(client, id).await });
+
+        match result {
+            Ok(page) => {
+                let details = page.details?;
+                Some(Artist {
+                    id: Some(details.browse_id),
+                    name: details.name,
+                    thumbnail_url: details.thumbnail_url,
+                    tracks: Some(
+                        page.top_tracks
+                            .into_iter()
+                            .map(artist_track_to_track)
+                            .collect(),
+                    ),
+                    is_followed: false,
+                    subscribers: details.subscribers,
+                })
+            }
+            Err(_) => None,
         }
     }
 
-    pub fn artist_top_tracks(&self, _id: &str) -> Vec<Track> {
-        Vec::new()
+    pub fn artist_albums(&self, id: &str, _limit: u32, _offset: u32) -> ApiPage<Album> {
+        let Some(client) = self.get_client() else {
+            return ApiPage {
+                offset: 0,
+                total: 0,
+                items: Vec::new(),
+            };
+        };
+
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(_) => {
+                return ApiPage {
+                    offset: 0,
+                    total: 0,
+                    items: Vec::new(),
+                };
+            }
+        };
+
+        let result = rt.block_on(async { yt_api::get_artist(client, id).await });
+
+        match result {
+            Ok(page) => {
+                // Combine albums and singles
+                let mut albums: Vec<Album> = page
+                    .albums
+                    .into_iter()
+                    .map(|a| artist_album_to_album(a, &page.details))
+                    .collect();
+                let singles: Vec<Album> = page
+                    .singles
+                    .into_iter()
+                    .map(|a| artist_album_to_album(a, &page.details))
+                    .collect();
+                albums.extend(singles);
+
+                let total = albums.len() as u32;
+                ApiPage {
+                    offset: 0,
+                    total,
+                    items: albums,
+                }
+            }
+            Err(_) => ApiPage {
+                offset: 0,
+                total: 0,
+                items: Vec::new(),
+            },
+        }
     }
 
-    pub fn artist_related_artists(&self, _id: &str) -> Vec<Artist> {
-        Vec::new()
+    pub fn artist_top_tracks(&self, id: &str) -> Vec<Track> {
+        let Some(client) = self.get_client() else {
+            return Vec::new();
+        };
+
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(_) => return Vec::new(),
+        };
+
+        let result = rt.block_on(async { yt_api::get_artist(client, id).await });
+
+        match result {
+            Ok(page) => page
+                .top_tracks
+                .into_iter()
+                .map(artist_track_to_track)
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    pub fn artist_related_artists(&self, id: &str) -> Vec<Artist> {
+        let Some(client) = self.get_client() else {
+            return Vec::new();
+        };
+
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(_) => return Vec::new(),
+        };
+
+        let result = rt.block_on(async { yt_api::get_artist(client, id).await });
+
+        match result {
+            Ok(page) => page
+                .related_artists
+                .into_iter()
+                .map(|a| Artist {
+                    id: Some(a.browse_id),
+                    name: a.name,
+                    thumbnail_url: a.thumbnail_url,
+                    tracks: None,
+                    is_followed: false,
+                    subscribers: a.subscribers,
+                })
+                .collect(),
+            Err(_) => Vec::new(),
+        }
     }
 
     pub fn playlist(&self, _id: &str) -> Option<Playlist> {
@@ -286,5 +437,53 @@ impl WebApi {
         _seed_artists: Option<Vec<String>>,
     ) -> Vec<Track> {
         Vec::new()
+    }
+}
+
+/// Convert an ArtistTrack from the API to a Track model.
+fn artist_track_to_track(track: yt_api::ArtistTrack) -> Track {
+    Track {
+        id: Some(track.video_id),
+        title: track.title,
+        duration: track.duration_seconds.unwrap_or(0),
+        artists: track.artists.iter().map(|a| a.name.clone()).collect(),
+        artist_ids: track
+            .artists
+            .iter()
+            .filter_map(|a| a.browse_id.clone())
+            .collect(),
+        album: track.album.as_ref().map(|a| a.title.clone()),
+        album_id: track.album.and_then(|a| a.browse_id),
+        cover_url: track.thumbnail_url,
+        added_at: None,
+        list_index: 0,
+        is_explicit: track.is_explicit,
+        set_video_id: None,
+    }
+}
+
+/// Convert an ArtistAlbum from the API to an Album model.
+fn artist_album_to_album(
+    album: yt_api::ArtistAlbum,
+    artist_details: &Option<yt_api::ArtistDetails>,
+) -> Album {
+    // Get artist name from the artist details if available
+    let (artists, artist_ids) = if let Some(details) = artist_details {
+        (vec![details.name.clone()], vec![details.browse_id.clone()])
+    } else {
+        (Vec::new(), Vec::new())
+    };
+
+    Album {
+        id: Some(album.browse_id),
+        title: album.title,
+        artists,
+        artist_ids,
+        year: album.year.unwrap_or_default(),
+        cover_url: album.thumbnail_url,
+        tracks: None,
+        added_at: None,
+        audio_playlist_id: None,
+        is_explicit: album.is_explicit,
     }
 }

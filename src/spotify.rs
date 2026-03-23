@@ -164,8 +164,12 @@ impl Spotify {
         })
     }
 
-    pub fn set_cookies(&self, cookies: Cookies) {
-        *self.cookies.write().unwrap() = Some(cookies);
+    pub fn set_cookies(&mut self, cookies: Cookies) {
+        *self.cookies.write().unwrap() = Some(cookies.clone());
+        // Initialize the WebApi client with cookies
+        if let Err(e) = self.api.init_from_cookies(cookies) {
+            log::error!("Failed to initialize WebApi client: {}", e);
+        }
     }
 
     pub fn start_worker(&self, _credentials: Option<Credentials>) -> Result<(), String> {

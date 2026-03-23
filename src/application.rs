@@ -169,7 +169,7 @@ impl Application {
 
         let event_manager = EventManager::new(cursive.cb_sink().clone());
 
-        let spotify =
+        let mut spotify =
             spotify::Spotify::new(event_manager.clone(), credentials, configuration.clone())?;
 
         // Set cookies for playback and start the player worker
@@ -381,7 +381,7 @@ impl Application {
 
         let event_manager = EventManager::new(cursive.cb_sink().clone());
 
-        let spotify =
+        let mut spotify =
             spotify::Spotify::new(event_manager.clone(), credentials, configuration.clone())?;
 
         // Set cookies for playback and start the player worker
