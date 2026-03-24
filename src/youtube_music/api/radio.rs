@@ -31,9 +31,10 @@ pub struct RadioTrack {
 pub struct RadioResponse {
     /// The tracks in the radio.
     pub tracks: Vec<RadioTrack>,
-    /// Playlist ID for the radio (can be used to get more tracks).
-    #[allow(dead_code)]
+    /// Playlist ID for the radio (used to fetch more tracks).
     pub playlist_id: Option<String>,
+    /// Continuation token for fetching more tracks.
+    pub continuation: Option<String>,
 }
 
 /// Get radio (similar tracks) based on a video ID.
@@ -69,6 +70,33 @@ pub async fn get_radio(
 
     let response = client.post("next", &body).await?;
     parse_radio_response(&response, video_id)
+}
+
+/// Fetch more radio tracks using a continuation token.
+///
+/// # Arguments
+///
+/// * `client` - The YouTube Music API client
+/// * `playlist_id` - The radio playlist ID from the initial response
+/// * `continuation` - The continuation token from the previous response
+///
+/// # Returns
+///
+/// A response containing more radio tracks and an optional next continuation token.
+pub async fn get_radio_continuation(
+    client: &YouTubeMusicClient,
+    playlist_id: &str,
+    continuation: &str,
+) -> Result<RadioResponse, ClientError> {
+    let body = json!({
+        "continuation": continuation,
+        "playlistId": playlist_id,
+        "isAudioOnly": true,
+        "tunerSettingValue": "AUTOMIX_SETTING_NORMAL"
+    });
+
+    let response = client.post("next", &body).await?;
+    parse_radio_continuation_response(&response)
 }
 
 /// Get radio based on a playlist ID.
@@ -116,6 +144,7 @@ fn parse_radio_response(
 ) -> Result<RadioResponse, ClientError> {
     let mut tracks = Vec::new();
     let mut playlist_id = None;
+    let mut continuation = None;
 
     // Try to find the playlist panel renderer which contains the radio tracks
     // Path: contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer.watchNextTabbedResultsRenderer
@@ -139,6 +168,18 @@ fn parse_radio_response(
                 }
             }
         }
+
+        // Extract continuation token for fetching more tracks
+        continuation = panel
+            .get("continuations")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|c| {
+                c.pointer("/nextRadioContinuationData/continuation")
+                    .or_else(|| c.pointer("/nextContinuationData/continuation"))
+            })
+            .and_then(|v| v.as_str())
+            .map(String::from);
     }
 
     // Alternative path for some responses
@@ -156,6 +197,50 @@ fn parse_radio_response(
     Ok(RadioResponse {
         tracks,
         playlist_id,
+        continuation,
+    })
+}
+
+/// Parse a continuation response for radio tracks.
+fn parse_radio_continuation_response(response: &Value) -> Result<RadioResponse, ClientError> {
+    let mut tracks = Vec::new();
+    let mut playlist_id = None;
+    let mut continuation = None;
+
+    // Continuation response path
+    let panel = response.pointer("/continuationContents/playlistPanelContinuation");
+
+    if let Some(panel) = panel {
+        playlist_id = panel
+            .get("playlistId")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        if let Some(contents) = panel.get("contents").and_then(|c| c.as_array()) {
+            for item in contents {
+                if let Some(track) = parse_radio_track(item, "") {
+                    tracks.push(track);
+                }
+            }
+        }
+
+        // Extract next continuation token
+        continuation = panel
+            .get("continuations")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|c| {
+                c.pointer("/nextRadioContinuationData/continuation")
+                    .or_else(|| c.pointer("/nextContinuationData/continuation"))
+            })
+            .and_then(|v| v.as_str())
+            .map(String::from);
+    }
+
+    Ok(RadioResponse {
+        tracks,
+        playlist_id,
+        continuation,
     })
 }
 

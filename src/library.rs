@@ -25,7 +25,7 @@ use crate::youtube_music::{
     api::{
         LibraryAlbum, LibraryPlaylist, LibraryTrack, RadioTrack, SearchAlbum, SearchArtist,
         SearchPlaylist, SearchResults, SearchTrack, get_library_albums, get_library_playlists,
-        get_liked_songs, get_radio, search,
+        get_liked_songs, get_radio, get_radio_continuation, search,
     },
 };
 
@@ -820,6 +820,9 @@ impl Library {
     ///
     /// A vector of similar tracks, or an empty vector if the feature is unavailable.
     pub fn get_radio_tracks(&self, video_id: &str) -> Vec<Track> {
+        // Target number of radio tracks to fetch
+        const TARGET_TRACKS: usize = 100;
+
         if let Some(ref client) = self.yt_client {
             let runtime = match Runtime::new() {
                 Ok(rt) => rt,
@@ -829,25 +832,46 @@ impl Library {
                 }
             };
 
-            match runtime.block_on(get_radio(client, video_id)) {
-                Ok(response) => {
-                    info!(
-                        "Loaded {} radio tracks for {}",
-                        response.tracks.len(),
-                        video_id
-                    );
-                    response
-                        .tracks
-                        .iter()
-                        .enumerate()
-                        .map(|(index, rt)| Self::radio_track_to_track(rt, index))
-                        .collect()
-                }
+            // Fetch initial radio response
+            let initial = match runtime.block_on(get_radio(client, video_id)) {
+                Ok(response) => response,
                 Err(e) => {
                     error!("Failed to fetch radio tracks: {:?}", e);
-                    Vec::new()
+                    return Vec::new();
+                }
+            };
+
+            let mut all_tracks = initial.tracks;
+            let mut continuation = initial.continuation;
+            let playlist_id = initial.playlist_id;
+
+            // Follow continuation tokens until we have enough tracks
+            while all_tracks.len() < TARGET_TRACKS {
+                let (Some(token), Some(pid)) = (continuation, &playlist_id) else {
+                    break;
+                };
+
+                match runtime.block_on(get_radio_continuation(client, pid, &token)) {
+                    Ok(response) => {
+                        if response.tracks.is_empty() {
+                            break;
+                        }
+                        all_tracks.extend(response.tracks);
+                        continuation = response.continuation;
+                    }
+                    Err(e) => {
+                        error!("Failed to fetch radio continuation: {:?}", e);
+                        break;
+                    }
                 }
             }
+
+            info!("Loaded {} radio tracks for {}", all_tracks.len(), video_id);
+            all_tracks
+                .iter()
+                .enumerate()
+                .map(|(index, rt)| Self::radio_track_to_track(rt, index))
+                .collect()
         } else {
             debug!("No YouTube Music client available for radio");
             Vec::new()
