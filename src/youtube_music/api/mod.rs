@@ -2,11 +2,13 @@
 //!
 //! This module contains functions for interacting with specific YouTube Music API endpoints.
 
+pub mod album;
 pub mod artist;
 pub mod library;
 pub mod radio;
 pub mod search;
 
+pub use album::{AlbumDetails, AlbumTrack, get_album};
 pub use artist::{ArtistAlbum, ArtistDetails, ArtistTrack, get_artist};
 pub use library::{
     LibraryAlbum, LibraryPlaylist, LibraryTrack, get_library_albums, get_library_playlists,

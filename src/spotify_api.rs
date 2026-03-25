@@ -203,8 +203,42 @@ impl WebApi {
         None
     }
 
-    pub fn album(&self, _id: &str) -> Result<Album, String> {
-        Err("Album stub".to_string())
+    pub fn album(&self, id: &str) -> Result<Album, String> {
+        let client = self.get_client().ok_or("No client available")?;
+
+        let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+        let result = rt.block_on(async { yt_api::get_album(client, id).await });
+
+        match result {
+            Ok(page) => {
+                let details = page.details.ok_or("No album details found")?;
+
+                // Convert tracks
+                let tracks: Vec<Track> = page
+                    .tracks
+                    .into_iter()
+                    .map(|t| album_track_to_track(t, &details))
+                    .collect();
+
+                Ok(Album {
+                    id: Some(details.browse_id),
+                    title: details.title,
+                    artists: details.artists.iter().map(|a| a.name.clone()).collect(),
+                    artist_ids: details
+                        .artists
+                        .iter()
+                        .filter_map(|a| a.browse_id.clone())
+                        .collect(),
+                    year: details.year.unwrap_or_default(),
+                    cover_url: details.thumbnail_url,
+                    tracks: Some(tracks),
+                    added_at: None,
+                    audio_playlist_id: details.audio_playlist_id,
+                    is_explicit: details.is_explicit,
+                })
+            }
+            Err(e) => Err(e.to_string()),
+        }
     }
 
     pub fn artist(&self, id: &str) -> Option<Artist> {
@@ -437,6 +471,28 @@ impl WebApi {
         _seed_artists: Option<Vec<String>>,
     ) -> Vec<Track> {
         Vec::new()
+    }
+}
+
+/// Convert an AlbumTrack from the API to a Track model.
+fn album_track_to_track(track: yt_api::AlbumTrack, album_details: &yt_api::AlbumDetails) -> Track {
+    Track {
+        id: Some(track.video_id),
+        title: track.title,
+        duration: track.duration_seconds.unwrap_or(0),
+        artists: track.artists.iter().map(|a| a.name.clone()).collect(),
+        artist_ids: track
+            .artists
+            .iter()
+            .filter_map(|a| a.browse_id.clone())
+            .collect(),
+        album: Some(album_details.title.clone()),
+        album_id: Some(album_details.browse_id.clone()),
+        cover_url: track.thumbnail_url.or_else(|| album_details.thumbnail_url.clone()),
+        added_at: None,
+        list_index: track.track_number.unwrap_or(0) as usize,
+        is_explicit: track.is_explicit,
+        set_video_id: None,
     }
 }
 
