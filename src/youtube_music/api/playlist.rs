@@ -253,13 +253,20 @@ pub async fn unfollow_playlist(
 // ── Parsers ───────────────────────────────────────────────────────────────────
 
 fn parse_playlist_info(response: &Value, playlist_id: &str) -> Option<PlaylistInfo> {
-    // Header can be musicDetailHeaderRenderer or musicEditablePlaylistDetailHeaderRenderer
+    // Header can be:
+    //   - musicDetailHeaderRenderer (older/simple playlists)
+    //   - musicEditablePlaylistDetailHeaderRenderer > header > musicDetailHeaderRenderer (owned playlists)
+    //   - twoColumnBrowseResultsRenderer > tabs > ... > musicResponsiveHeaderRenderer (newer layout)
     let header = response
         .pointer("/header/musicDetailHeaderRenderer")
         .or_else(|| {
             response.pointer(
                 "/header/musicEditablePlaylistDetailHeaderRenderer/header/musicDetailHeaderRenderer",
             )
+        })
+        .or_else(|| {
+            // Newer layout: header is inside the two-column tab structure
+            response.pointer("/contents/twoColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicResponsiveHeaderRenderer")
         })?;
 
     let title = header
@@ -336,10 +343,17 @@ fn parse_playlist_tracks_response(response: &Value, playlist_id: &str) -> Playli
             .unwrap_or_default();
         (tracks, token)
     } else {
-        // Initial response: look for musicShelfRenderer or musicPlaylistShelfRenderer
+        // Initial response: YouTube Music uses twoColumnBrowseResultsRenderer for playlists.
+        // The tracks are in secondaryContents > sectionListRenderer > musicPlaylistShelfRenderer.
+        // Fall back to singleColumnBrowseResultsRenderer for older/alternative responses.
         let shelf = response
-            .pointer("/contents/singleColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicPlaylistShelfRenderer")
-            .or_else(|| response.pointer("/contents/singleColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicShelfRenderer"));
+            .pointer("/contents/twoColumnBrowseResultsRenderer/secondaryContents/sectionListRenderer/contents/0/musicPlaylistShelfRenderer")
+            .or_else(|| {
+                response.pointer("/contents/singleColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicPlaylistShelfRenderer")
+            })
+            .or_else(|| {
+                response.pointer("/contents/singleColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicShelfRenderer")
+            });
 
         let items = shelf
             .and_then(|s| s.get("contents"))
@@ -370,20 +384,35 @@ fn parse_playlist_tracks_response(response: &Value, playlist_id: &str) -> Playli
 fn parse_playlist_track(item: &Value) -> Option<PlaylistTrack> {
     let renderer = item.get("musicResponsiveListItemRenderer")?;
 
-    // Video ID
+    // Video ID — prefer play button endpoint, fall back to playlistItemData
     let video_id = renderer
-        .pointer("/playlistItemData/videoId")
-        .or_else(|| {
-            renderer.pointer("/overlay/musicItemThumbnailOverlayRenderer/content/musicPlayButtonRenderer/playNavigationEndpoint/watchEndpoint/videoId")
-        })
+        .pointer("/overlay/musicItemThumbnailOverlayRenderer/content/musicPlayButtonRenderer/playNavigationEndpoint/watchEndpoint/videoId")
+        .or_else(|| renderer.pointer("/playlistItemData/videoId"))
         .and_then(|v| v.as_str())
         .map(String::from)?;
 
-    // set_video_id — used for removal
+    // set_video_id — required for removal.
+    // It lives in the menu under menuServiceItemRenderer > playlistEditEndpoint > actions[0] > setVideoId.
+    // Some responses also put it in playlistItemData.
     let set_video_id = renderer
-        .pointer("/playlistItemData/playlistSetVideoId")
-        .and_then(|v| v.as_str())
-        .map(String::from);
+        .get("menu")
+        .and_then(|m| m.pointer("/menuRenderer/items"))
+        .and_then(|v| v.as_array())
+        .and_then(|items| {
+            items.iter().find_map(|item| {
+                item.pointer(
+                    "/menuServiceItemRenderer/serviceEndpoint/playlistEditEndpoint/actions/0/setVideoId",
+                )
+                .and_then(|v| v.as_str())
+                .map(String::from)
+            })
+        })
+        .or_else(|| {
+            renderer
+                .pointer("/playlistItemData/playlistSetVideoId")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        });
 
     let flex_columns = renderer.get("flexColumns")?.as_array()?;
 
@@ -499,6 +528,8 @@ fn parse_duration(s: &str) -> Option<u32> {
 mod tests {
     use super::*;
 
+    /// Mock response matching the real YouTube Music twoColumnBrowseResultsRenderer layout
+    /// (as used by WEB_REMIX client for playlist browsing).
     fn mock_playlist_response() -> Value {
         json!({
             "header": {
@@ -526,62 +557,83 @@ mod tests {
                 }
             },
             "contents": {
-                "singleColumnBrowseResultsRenderer": {
-                    "tabs": [{
-                        "tabRenderer": {
-                            "content": {
-                                "sectionListRenderer": {
-                                    "contents": [{
-                                        "musicPlaylistShelfRenderer": {
-                                            "contents": [
-                                                {
-                                                    "musicResponsiveListItemRenderer": {
-                                                        "playlistItemData": {
-                                                            "videoId": "vid1",
-                                                            "playlistSetVideoId": "svid1"
-                                                        },
-                                                        "flexColumns": [
-                                                            {
-                                                                "musicResponsiveListItemFlexColumnRenderer": {
-                                                                    "text": { "runs": [{"text": "Song One"}] }
-                                                                }
-                                                            },
-                                                            {
-                                                                "musicResponsiveListItemFlexColumnRenderer": {
-                                                                    "text": {
-                                                                        "runs": [
-                                                                            {
-                                                                                "text": "Artist A",
-                                                                                "navigationEndpoint": {
-                                                                                    "browseEndpoint": {"browseId": "UCa"}
-                                                                                }
-                                                                            },
-                                                                            {"text": " • "},
-                                                                            {
-                                                                                "text": "The Album",
-                                                                                "navigationEndpoint": {
-                                                                                    "browseEndpoint": {"browseId": "MPREb_abc"}
-                                                                                }
-                                                                            }
-                                                                        ]
+                "twoColumnBrowseResultsRenderer": {
+                    "secondaryContents": {
+                        "sectionListRenderer": {
+                            "contents": [{
+                                "musicPlaylistShelfRenderer": {
+                                    "contents": [
+                                        {
+                                            "musicResponsiveListItemRenderer": {
+                                                "overlay": {
+                                                    "musicItemThumbnailOverlayRenderer": {
+                                                        "content": {
+                                                            "musicPlayButtonRenderer": {
+                                                                "playNavigationEndpoint": {
+                                                                    "watchEndpoint": {
+                                                                        "videoId": "vid1"
                                                                     }
                                                                 }
                                                             }
-                                                        ],
-                                                        "fixedColumns": [{
-                                                            "musicResponsiveListItemFixedColumnRenderer": {
-                                                                "text": { "runs": [{"text": "3:45"}] }
+                                                        }
+                                                    }
+                                                },
+                                                "flexColumns": [
+                                                    {
+                                                        "musicResponsiveListItemFlexColumnRenderer": {
+                                                            "text": { "runs": [{"text": "Song One"}] }
+                                                        }
+                                                    },
+                                                    {
+                                                        "musicResponsiveListItemFlexColumnRenderer": {
+                                                            "text": {
+                                                                "runs": [
+                                                                    {
+                                                                        "text": "Artist A",
+                                                                        "navigationEndpoint": {
+                                                                            "browseEndpoint": {"browseId": "UCa"}
+                                                                        }
+                                                                    },
+                                                                    {"text": " • "},
+                                                                    {
+                                                                        "text": "The Album",
+                                                                        "navigationEndpoint": {
+                                                                            "browseEndpoint": {"browseId": "MPREb_abc"}
+                                                                        }
+                                                                    }
+                                                                ]
+                                                            }
+                                                        }
+                                                    }
+                                                ],
+                                                "fixedColumns": [{
+                                                    "musicResponsiveListItemFixedColumnRenderer": {
+                                                        "text": { "runs": [{"text": "3:45"}] }
+                                                    }
+                                                }],
+                                                "menu": {
+                                                    "menuRenderer": {
+                                                        "items": [{
+                                                            "menuServiceItemRenderer": {
+                                                                "serviceEndpoint": {
+                                                                    "playlistEditEndpoint": {
+                                                                        "actions": [{
+                                                                            "setVideoId": "svid1",
+                                                                            "removedVideoId": "vid1"
+                                                                        }]
+                                                                    }
+                                                                }
                                                             }
                                                         }]
                                                     }
                                                 }
-                                            ]
+                                            }
                                         }
-                                    }]
+                                    ]
                                 }
-                            }
+                            }]
                         }
-                    }]
+                    }
                 }
             }
         })
