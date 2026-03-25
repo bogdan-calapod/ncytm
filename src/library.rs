@@ -17,7 +17,7 @@ use crate::model::album::Album;
 use crate::model::artist::Artist;
 use crate::model::playable::Playable;
 use crate::model::playlist::Playlist;
-use crate::model::show::Show;
+
 use crate::model::track::Track;
 use crate::spotify::Spotify;
 use crate::youtube_music::{
@@ -49,7 +49,6 @@ pub struct Library {
     pub albums: Arc<RwLock<Vec<Album>>>,
     pub artists: Arc<RwLock<Vec<Artist>>>,
     pub playlists: Arc<RwLock<Vec<Playlist>>>,
-    pub shows: Arc<RwLock<Vec<Show>>>,
     pub is_done: Arc<RwLock<bool>>,
     pub user_id: Option<String>,
     pub display_name: Option<String>,
@@ -69,7 +68,6 @@ impl Library {
             albums: Arc::new(RwLock::new(Vec::new())),
             artists: Arc::new(RwLock::new(Vec::new())),
             playlists: Arc::new(RwLock::new(Vec::new())),
-            shows: Arc::new(RwLock::new(Vec::new())),
             is_done: Arc::new(RwLock::new(false)),
             user_id: None,
             display_name: None,
@@ -92,7 +90,6 @@ impl Library {
             albums: Arc::new(RwLock::new(Vec::new())),
             artists: Arc::new(RwLock::new(Vec::new())),
             playlists: Arc::new(RwLock::new(Vec::new())),
-            shows: Arc::new(RwLock::new(Vec::new())),
             is_done: Arc::new(RwLock::new(false)),
             user_id: None,
             display_name: None,
@@ -283,13 +280,6 @@ impl Library {
                 })
             };
 
-            let t_shows = {
-                let library = library.clone();
-                thread::spawn(move || {
-                    library.fetch_shows();
-                })
-            };
-
             t_tracks.join().unwrap();
             t_artists.join().unwrap();
 
@@ -301,39 +291,12 @@ impl Library {
 
             t_albums.join().unwrap();
             t_playlists.join().unwrap();
-            t_shows.join().unwrap();
 
             let mut is_done = library.is_done.write().unwrap();
             *is_done = true;
 
             library.ev.trigger();
         });
-    }
-
-    /// Fetch the shows from the web API and save them to the local library.
-    fn fetch_shows(&self) {
-        debug!("loading shows");
-
-        let mut saved_shows: Vec<Show> = Vec::new();
-        let mut shows_result = self.spotify.api.get_saved_shows(0).ok();
-
-        while let Some(shows) = shows_result {
-            saved_shows.extend(shows.items.iter().map(|show| show.show.clone()));
-
-            // load next batch if necessary
-            shows_result = match shows.next {
-                Some(_) => {
-                    debug!("requesting shows again..");
-                    self.spotify
-                        .api
-                        .get_saved_shows(shows.offset + shows.items.len() as u32)
-                        .ok()
-                }
-                None => None,
-            }
-        }
-
-        *self.shows.write().unwrap() = saved_shows;
     }
 
     /// Fetch the playlists from YouTube Music and save them to the local library. This synchronizes
@@ -1360,59 +1323,6 @@ impl Library {
             &config::cache_path(CACHE_PLAYLISTS),
             &self.playlists.read().unwrap(),
         );
-    }
-
-    /// Check whether `show` is already in the user's library.
-    pub fn is_saved_show(&self, show: &Show) -> bool {
-        if !*self.is_done.read().unwrap() {
-            return false;
-        }
-
-        let shows = self.shows.read().unwrap();
-        shows.iter().any(|s| s.id == show.id)
-    }
-
-    /// Save the `show` to the user's library.
-    pub fn save_show(&self, show: &Show) {
-        if !*self.is_done.read().unwrap() {
-            return;
-        }
-
-        if self.spotify.api.save_shows(&[show.id.as_str()]).is_ok() {
-            {
-                let mut store = self.shows.write().unwrap();
-                if !store.iter().any(|s| s.id == show.id) {
-                    store.insert(0, show.clone());
-                }
-            }
-        }
-    }
-
-    /// Remove the `show` from the user's library.
-    pub fn unsave_show(&self, show: &Show) {
-        if !*self.is_done.read().unwrap() {
-            return;
-        }
-
-        if self.spotify.api.unsave_shows(&[show.id.as_str()]).is_ok() {
-            let mut store = self.shows.write().unwrap();
-            *store = store.iter().filter(|s| s.id != show.id).cloned().collect();
-        }
-    }
-
-    /// Check if the user follows a show.
-    pub fn is_followed_show(&self, show: &Show) -> bool {
-        self.is_saved_show(show)
-    }
-
-    /// Follow a show (same as saving).
-    pub fn follow_show(&self, show: &Show) {
-        self.save_show(show)
-    }
-
-    /// Unfollow a show (same as unsaving).
-    pub fn unfollow_show(&self, show: &Show) {
-        self.unsave_show(show)
     }
 
     /// Force redraw the user interface.

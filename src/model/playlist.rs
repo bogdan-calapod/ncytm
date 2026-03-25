@@ -87,7 +87,54 @@ impl Playlist {
     /// Sort tracks in this playlist.
     pub fn sort(&mut self, key: &SortKey, direction: &SortDirection, _spotify: &Spotify) {
         debug!("Sorting playlist by {:?} {:?}", key, direction);
-        // TODO: Implement playlist sorting
+        let Some(ref mut tracks) = self.tracks else {
+            return;
+        };
+        tracks.sort_by(|a, b| {
+            let ord = match key {
+                SortKey::Title => a.title().cmp(&b.title()),
+                SortKey::Duration => {
+                    let da = match a {
+                        Playable::Track(t) => t.duration,
+                    };
+                    let db = match b {
+                        Playable::Track(t) => t.duration,
+                    };
+                    da.cmp(&db)
+                }
+                SortKey::Artist => {
+                    let aa = match a {
+                        Playable::Track(t) => t.artists.first().cloned().unwrap_or_default(),
+                    };
+                    let ba = match b {
+                        Playable::Track(t) => t.artists.first().cloned().unwrap_or_default(),
+                    };
+                    aa.cmp(&ba)
+                }
+                SortKey::Album => {
+                    let aa = match a {
+                        Playable::Track(t) => t.album.clone().unwrap_or_default(),
+                    };
+                    let ba = match b {
+                        Playable::Track(t) => t.album.clone().unwrap_or_default(),
+                    };
+                    aa.cmp(&ba)
+                }
+                SortKey::Added => {
+                    let aa = match a {
+                        Playable::Track(t) => t.added_at,
+                    };
+                    let ba = match b {
+                        Playable::Track(t) => t.added_at,
+                    };
+                    aa.cmp(&ba)
+                }
+            };
+            match direction {
+                SortDirection::Ascending => ord,
+                SortDirection::Descending => ord.reverse(),
+            }
+        });
     }
 }
 

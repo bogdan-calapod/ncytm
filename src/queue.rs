@@ -526,7 +526,6 @@ mod tests {
     fn track_id(p: &Playable) -> &str {
         match p {
             Playable::Track(t) => t.id.as_deref().unwrap_or(""),
-            Playable::Episode(_) => "",
         }
     }
 

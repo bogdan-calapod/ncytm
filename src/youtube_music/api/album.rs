@@ -122,9 +122,7 @@ fn parse_album_header(response: &Value, browse_id: &str) -> Option<AlbumDetails>
         .map(String::from);
 
     // Parse subtitle for artists, year, album type, duration, track count
-    let subtitle_runs = header
-        .pointer("/subtitle/runs")
-        .and_then(|v| v.as_array());
+    let subtitle_runs = header.pointer("/subtitle/runs").and_then(|v| v.as_array());
 
     let mut artists = Vec::new();
     let mut year: Option<String> = None;
@@ -174,7 +172,10 @@ fn parse_album_header(response: &Value, browse_id: &str) -> Option<AlbumDetails>
                 .map(String::from);
 
             // Artists have UC prefix or no browse ID
-            if artist_browse_id.as_ref().map_or(true, |id| id.starts_with("UC")) {
+            if artist_browse_id
+                .as_ref()
+                .is_none_or(|id| id.starts_with("UC"))
+            {
                 artists.push(ArtistRef {
                     name: text.to_string(),
                     browse_id: artist_browse_id,
@@ -199,14 +200,22 @@ fn parse_album_header(response: &Value, browse_id: &str) -> Option<AlbumDetails>
     // Get audio playlist ID from menu items
     let audio_playlist_id = response
         .pointer("/header/musicDetailHeaderRenderer/menu/menuRenderer/items")
-        .or_else(|| response.pointer("/header/musicImmersiveHeaderRenderer/menu/menuRenderer/items"))
+        .or_else(|| {
+            response.pointer("/header/musicImmersiveHeaderRenderer/menu/menuRenderer/items")
+        })
         .and_then(|v| v.as_array())
         .and_then(|items| {
             items.iter().find_map(|item| {
-                item.pointer("/menuNavigationItemRenderer/navigationEndpoint/watchEndpoint/playlistId")
-                    .or_else(|| item.pointer("/menuServiceItemRenderer/serviceEndpoint/playlistEditEndpoint/playlistId"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from)
+                item.pointer(
+                    "/menuNavigationItemRenderer/navigationEndpoint/watchEndpoint/playlistId",
+                )
+                .or_else(|| {
+                    item.pointer(
+                        "/menuServiceItemRenderer/serviceEndpoint/playlistEditEndpoint/playlistId",
+                    )
+                })
+                .and_then(|v| v.as_str())
+                .map(String::from)
             })
         })
         // Also try from the play button
@@ -250,12 +259,12 @@ fn parse_album_tracks(response: &Value) -> Vec<AlbumTrack> {
             response.pointer("/contents/twoColumnBrowseResultsRenderer/secondaryContents/sectionListRenderer/contents/0/musicShelfRenderer")
         });
 
-    if let Some(shelf) = shelf {
-        if let Some(contents) = shelf.get("contents").and_then(|v| v.as_array()) {
-            for (index, item) in contents.iter().enumerate() {
-                if let Some(track) = parse_album_track(item, index as u32 + 1) {
-                    tracks.push(track);
-                }
+    if let Some(shelf) = shelf
+        && let Some(contents) = shelf.get("contents").and_then(|v| v.as_array())
+    {
+        for (index, item) in contents.iter().enumerate() {
+            if let Some(track) = parse_album_track(item, index as u32 + 1) {
+                tracks.push(track);
             }
         }
     }

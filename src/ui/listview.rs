@@ -738,11 +738,7 @@ impl<I: ListItem + Clone> ViewExt for ListView<I> {
                             .api
                             .artist(&url.id)
                             .map(|artist| artist.as_listitem()),
-                        UriType::Episode => spotify
-                            .api
-                            .episode(&url.id)
-                            .map(|episode| episode.as_listitem()),
-                        UriType::Show => spotify.api.show(&url.id).map(|show| show.as_listitem()),
+                        UriType::Episode | UriType::Show => None,
                     };
 
                     let queue = self.queue.clone();

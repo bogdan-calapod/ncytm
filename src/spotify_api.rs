@@ -8,10 +8,8 @@ use log::info;
 use crate::model::album::Album;
 use crate::model::artist::Artist;
 use crate::model::category::Category;
-use crate::model::episode::Episode;
 use crate::model::playable::Playable;
 use crate::model::playlist::Playlist;
-use crate::model::show::Show;
 use crate::model::track::Track;
 use crate::ui::pagination::{ApiPage, ApiResult};
 use crate::youtube_music::{Cookies, YouTubeMusicClient, api as yt_api};
@@ -47,18 +45,6 @@ impl From<&SavedTrack> for Track {
     }
 }
 
-/// Saved show wrapper for API responses.
-#[derive(Clone, Debug)]
-pub struct SavedShow {
-    pub show: Show,
-}
-
-impl From<&SavedShow> for Show {
-    fn from(saved: &SavedShow) -> Self {
-        saved.show.clone()
-    }
-}
-
 /// API page for saved tracks.
 #[derive(Clone, Debug, Default)]
 pub struct SavedTracksPage {
@@ -66,18 +52,10 @@ pub struct SavedTracksPage {
     pub next: Option<String>,
 }
 
-/// API page for saved albums.  
+/// API page for saved albums.
 #[derive(Clone, Debug, Default)]
 pub struct SavedAlbumsPage {
     pub items: Vec<SavedAlbum>,
-    pub next: Option<String>,
-}
-
-/// API page for saved shows.
-#[derive(Clone, Debug, Default)]
-pub struct SavedShowsPage {
-    pub offset: u32,
-    pub items: Vec<SavedShow>,
     pub next: Option<String>,
 }
 
@@ -174,33 +152,74 @@ impl WebApi {
         Ok(CursorPage::default())
     }
 
-    pub fn user_follow_artists(&self, _ids: Vec<&str>) -> Result<(), String> {
-        info!("follow artists stubbed");
+    pub fn user_follow_artists(&self, ids: Vec<&str>) -> Result<(), String> {
+        let client = self.get_client().ok_or("No client available")?;
+        let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+        for id in ids {
+            let result = rt.block_on(async {
+                // Subscribe to artist channel via the subscribe endpoint
+                let body = serde_json::json!({
+                    "channelIds": [id]
+                });
+                client.post("subscription/subscribe", &body).await
+            });
+            if let Err(e) = result {
+                return Err(e.to_string());
+            }
+        }
         Ok(())
     }
 
-    pub fn user_unfollow_artists(&self, _ids: Vec<&str>) -> Result<(), String> {
-        info!("unfollow artists stubbed");
-        Ok(())
-    }
-
-    pub fn get_saved_shows(&self, _offset: u32) -> Result<SavedShowsPage, String> {
-        Ok(SavedShowsPage::default())
-    }
-
-    pub fn save_shows(&self, _ids: &[&str]) -> Result<(), String> {
-        info!("save shows stubbed");
-        Ok(())
-    }
-
-    pub fn unsave_shows(&self, _ids: &[&str]) -> Result<(), String> {
-        info!("unsave shows stubbed");
+    pub fn user_unfollow_artists(&self, ids: Vec<&str>) -> Result<(), String> {
+        let client = self.get_client().ok_or("No client available")?;
+        let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+        for id in ids {
+            let result = rt.block_on(async {
+                let body = serde_json::json!({
+                    "channelIds": [id]
+                });
+                client.post("subscription/unsubscribe", &body).await
+            });
+            if let Err(e) = result {
+                return Err(e.to_string());
+            }
+        }
         Ok(())
     }
 
     // Content retrieval
-    pub fn track(&self, _id: &str) -> Option<Track> {
-        None
+    pub fn track(&self, id: &str) -> Option<Track> {
+        // Fetch a single track by video ID using a search query.
+        // YouTube Music has no direct "get video metadata" endpoint accessible
+        // without a session, so we use the player endpoint.
+        let client = self.get_client()?;
+        let rt = tokio::runtime::Runtime::new().ok()?;
+        let result = rt.block_on(async { yt_api::search(client, id).await });
+        match result {
+            Ok(results) => results
+                .tracks
+                .into_iter()
+                .find(|t| t.video_id == id)
+                .map(|t| Track {
+                    id: Some(t.video_id),
+                    title: t.title,
+                    duration: t.duration_seconds.unwrap_or(0),
+                    artists: t.artists.iter().map(|a| a.name.clone()).collect(),
+                    artist_ids: t
+                        .artists
+                        .iter()
+                        .filter_map(|a| a.browse_id.clone())
+                        .collect(),
+                    album: t.album.as_ref().map(|a| a.title.clone()),
+                    album_id: t.album.and_then(|a| a.browse_id),
+                    cover_url: t.thumbnail_url,
+                    added_at: None,
+                    list_index: 0,
+                    is_explicit: t.is_explicit,
+                    set_video_id: None,
+                }),
+            Err(_) => None,
+        }
     }
 
     pub fn album(&self, id: &str) -> Result<Album, String> {
@@ -371,95 +390,268 @@ impl WebApi {
         }
     }
 
-    pub fn playlist(&self, _id: &str) -> Option<Playlist> {
-        None
+    pub fn playlist(&self, id: &str) -> Option<Playlist> {
+        let client = self.get_client()?;
+        let rt = tokio::runtime::Runtime::new().ok()?;
+        let result = rt.block_on(async { yt_api::get_playlist_info(client, id).await });
+        match result {
+            Ok(Some(info)) => Some(Playlist {
+                id: info.playlist_id,
+                name: info.title,
+                owner_id: info.owner_id,
+                owner_name: info.owner_name,
+                num_tracks: info.track_count,
+                tracks: None,
+                thumbnail_url: info.thumbnail_url,
+                description: info.description,
+            }),
+            _ => None,
+        }
     }
 
     pub fn playlist_tracks(
         &self,
-        _id: &str,
+        id: &str,
         _limit: u32,
         _offset: u32,
     ) -> Option<ApiPage<Playable>> {
-        None
-    }
+        let client = self.get_client()?;
+        let rt = tokio::runtime::Runtime::new().ok()?;
 
-    pub fn episode(&self, _id: &str) -> Option<Episode> {
-        None
-    }
+        // Fetch all pages
+        let mut all_tracks: Vec<Playable> = Vec::new();
+        let mut continuation: Option<String> = None;
 
-    pub fn show(&self, _id: &str) -> Option<crate::model::show::Show> {
-        None
-    }
-
-    pub fn show_episodes(&self, _id: &str, _offset: u32) -> ApiPage<Episode> {
-        ApiPage {
-            offset: 0,
-            total: 0,
-            items: Vec::new(),
+        loop {
+            let cont_ref = continuation.as_deref();
+            let result =
+                rt.block_on(async { yt_api::get_playlist_tracks(client, id, cont_ref).await });
+            match result {
+                Ok(page) => {
+                    for t in page.tracks {
+                        all_tracks.push(Playable::Track(playlist_track_to_track(t)));
+                    }
+                    continuation = page.continuation;
+                    if continuation.is_none() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
         }
+
+        let total = all_tracks.len() as u32;
+        Some(ApiPage {
+            offset: 0,
+            total,
+            items: all_tracks,
+        })
     }
 
     // Playlist management
     pub fn create_playlist(
         &self,
-        _name: &str,
-        _public: Option<bool>,
-        _description: Option<&str>,
+        name: &str,
+        public: Option<bool>,
+        description: Option<&str>,
     ) -> Result<String, String> {
-        info!("create playlist stubbed");
-        Err("Playlist creation stubbed".to_string())
+        let client = self.get_client().ok_or("No client available")?;
+        let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+        rt.block_on(async {
+            yt_api::create_playlist(client, name, description, public.unwrap_or(false)).await
+        })
+        .map_err(|e| e.to_string())
     }
 
-    pub fn delete_playlist(&self, _id: &str) -> Result<(), String> {
-        info!("delete playlist stubbed");
-        Ok(())
+    pub fn delete_playlist(&self, id: &str) -> Result<(), String> {
+        let client = self.get_client().ok_or("No client available")?;
+        let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+        rt.block_on(async { yt_api::delete_playlist(client, id).await })
+            .map_err(|e| e.to_string())
     }
 
-    pub fn overwrite_playlist(&self, _id: &str, _tracks: &[Playable]) {
-        info!("overwrite playlist stubbed");
+    pub fn overwrite_playlist(&self, id: &str, tracks: &[Playable]) {
+        let Some(client) = self.get_client() else {
+            return;
+        };
+        let Ok(rt) = tokio::runtime::Runtime::new() else {
+            return;
+        };
+
+        // 1. Delete all existing tracks by first fetching them to get set_video_ids
+        let existing = rt.block_on(async { yt_api::get_playlist_tracks(client, id, None).await });
+        if let Ok(page) = existing {
+            let svids: Vec<&str> = page
+                .tracks
+                .iter()
+                .filter_map(|t| t.set_video_id.as_deref())
+                .collect();
+            let vids: Vec<&str> = page.tracks.iter().map(|t| t.video_id.as_str()).collect();
+            if !svids.is_empty() {
+                let _ = rt.block_on(async {
+                    yt_api::remove_playlist_tracks(client, id, &svids, &vids).await
+                });
+            }
+        }
+
+        // 2. Add new tracks
+        let owned_ids: Vec<String> = tracks.iter().filter_map(|t| t.id()).collect();
+        let id_refs: Vec<&str> = owned_ids.iter().map(|s| s.as_str()).collect();
+        if !id_refs.is_empty() {
+            let _ = rt.block_on(async { yt_api::add_playlist_tracks(client, id, &id_refs).await });
+        }
     }
 
-    pub fn user_playlist_follow_playlist(&self, _id: &str) -> Result<(), String> {
-        info!("follow playlist stubbed");
-        Ok(())
+    pub fn user_playlist_follow_playlist(&self, id: &str) -> Result<(), String> {
+        let client = self.get_client().ok_or("No client available")?;
+        let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+        rt.block_on(async { yt_api::follow_playlist(client, id).await })
+            .map_err(|e| e.to_string())
     }
 
-    pub fn user_playlist_unfollow_playlist(&self, _id: &str) -> bool {
-        info!("unfollow playlist stubbed");
-        true
+    pub fn user_playlist_unfollow_playlist(&self, id: &str) -> bool {
+        let Some(client) = self.get_client() else {
+            return false;
+        };
+        let Ok(rt) = tokio::runtime::Runtime::new() else {
+            return false;
+        };
+        rt.block_on(async { yt_api::unfollow_playlist(client, id).await })
+            .is_ok()
     }
 
     pub fn user_playlist_add_tracks(
         &self,
-        _playlist_id: &str,
-        _track_ids: &[String],
+        playlist_id: &str,
+        track_ids: &[String],
         _position: Option<usize>,
     ) -> bool {
-        info!("add tracks to playlist stubbed");
-        true
+        let Some(client) = self.get_client() else {
+            return false;
+        };
+        let Ok(rt) = tokio::runtime::Runtime::new() else {
+            return false;
+        };
+        let id_refs: Vec<&str> = track_ids.iter().map(|s| s.as_str()).collect();
+        rt.block_on(async { yt_api::add_playlist_tracks(client, playlist_id, &id_refs).await })
+            .is_ok()
     }
 
     pub fn user_playlist_remove_tracks(
         &self,
-        _playlist_id: &str,
+        playlist_id: &str,
         _snapshot_id: Option<String>,
-        _positions: &[usize],
+        positions: &[usize],
     ) -> bool {
-        info!("remove tracks from playlist stubbed");
-        true
+        // To remove by position we first need to fetch the tracks to get their set_video_ids.
+        let Some(client) = self.get_client() else {
+            return false;
+        };
+        let Ok(rt) = tokio::runtime::Runtime::new() else {
+            return false;
+        };
+        let page_result =
+            rt.block_on(async { yt_api::get_playlist_tracks(client, playlist_id, None).await });
+        let page = match page_result {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+
+        let to_remove: Vec<&yt_api::PlaylistTrack> = positions
+            .iter()
+            .filter_map(|&i| page.tracks.get(i))
+            .collect();
+
+        let svids: Vec<&str> = to_remove
+            .iter()
+            .filter_map(|t| t.set_video_id.as_deref())
+            .collect();
+        let vids: Vec<&str> = to_remove.iter().map(|t| t.video_id.as_str()).collect();
+
+        if svids.is_empty() {
+            return true; // nothing to remove
+        }
+
+        rt.block_on(async {
+            yt_api::remove_playlist_tracks(client, playlist_id, &svids, &vids).await
+        })
+        .is_ok()
     }
 
     // Browse
     pub fn categories(&self) -> ApiResult<Category> {
-        ApiResult::new(50, std::sync::Arc::new(|_offset| None))
+        let Some(client) = self.get_client() else {
+            return ApiResult::new(50, std::sync::Arc::new(|_offset| None));
+        };
+        let Ok(rt) = tokio::runtime::Runtime::new() else {
+            return ApiResult::new(50, std::sync::Arc::new(|_offset| None));
+        };
+
+        let cats = rt
+            .block_on(async { yt_api::get_categories(client).await })
+            .unwrap_or_default();
+
+        let categories: Vec<Category> = cats
+            .into_iter()
+            .map(|c| Category {
+                id: c.browse_id,
+                name: c.name,
+            })
+            .collect();
+
+        let total = categories.len() as u32;
+        let items = Arc::new(std::sync::RwLock::new(categories));
+        ApiResult::new(
+            total,
+            Arc::new(move |_offset| {
+                Some(ApiPage {
+                    offset: 0,
+                    total,
+                    items: items.read().unwrap().clone(),
+                })
+            }),
+        )
     }
 
-    pub fn category_playlists(&self, _category_id: &str, _offset: u32) -> ApiPage<Playlist> {
+    pub fn category_playlists(&self, category_id: &str, _offset: u32) -> ApiPage<Playlist> {
+        let Some(client) = self.get_client() else {
+            return ApiPage {
+                offset: 0,
+                total: 0,
+                items: Vec::new(),
+            };
+        };
+        let Ok(rt) = tokio::runtime::Runtime::new() else {
+            return ApiPage {
+                offset: 0,
+                total: 0,
+                items: Vec::new(),
+            };
+        };
+
+        let pls = rt
+            .block_on(async { yt_api::get_category_playlists(client, category_id).await })
+            .unwrap_or_default();
+
+        let playlists: Vec<Playlist> = pls
+            .into_iter()
+            .map(|p| Playlist {
+                id: p.playlist_id,
+                name: p.title,
+                owner_id: String::new(),
+                owner_name: p.subtitle,
+                num_tracks: 0,
+                tracks: None,
+                thumbnail_url: p.thumbnail_url,
+                description: None,
+            })
+            .collect();
+
+        let total = playlists.len() as u32;
         ApiPage {
             offset: 0,
-            total: 0,
-            items: Vec::new(),
+            total,
+            items: playlists,
         }
     }
 
@@ -488,11 +680,35 @@ fn album_track_to_track(track: yt_api::AlbumTrack, album_details: &yt_api::Album
             .collect(),
         album: Some(album_details.title.clone()),
         album_id: Some(album_details.browse_id.clone()),
-        cover_url: track.thumbnail_url.or_else(|| album_details.thumbnail_url.clone()),
+        cover_url: track
+            .thumbnail_url
+            .or_else(|| album_details.thumbnail_url.clone()),
         added_at: None,
         list_index: track.track_number.unwrap_or(0) as usize,
         is_explicit: track.is_explicit,
         set_video_id: None,
+    }
+}
+
+/// Convert a PlaylistTrack from the API to a Track model.
+fn playlist_track_to_track(track: yt_api::PlaylistTrack) -> Track {
+    Track {
+        id: Some(track.video_id),
+        title: track.title,
+        duration: track.duration_seconds.unwrap_or(0),
+        artists: track.artists.iter().map(|a| a.name.clone()).collect(),
+        artist_ids: track
+            .artists
+            .iter()
+            .filter_map(|a| a.browse_id.clone())
+            .collect(),
+        album: track.album,
+        album_id: track.album_id,
+        cover_url: track.thumbnail_url,
+        added_at: None,
+        list_index: 0,
+        is_explicit: track.is_explicit,
+        set_video_id: track.set_video_id,
     }
 }
 

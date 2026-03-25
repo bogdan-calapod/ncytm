@@ -15,10 +15,8 @@ use zbus::{connection, interface};
 use crate::application::ASYNC_RUNTIME;
 use crate::library::Library;
 use crate::model::album::Album;
-use crate::model::episode::Episode;
 use crate::model::playable::Playable;
 use crate::model::playlist::Playlist;
-use crate::model::show::Show;
 use crate::model::track::Track;
 use crate::queue::RepeatSetting;
 use crate::spotify::UriType;
@@ -143,7 +141,8 @@ impl MprisPlayer {
                         .map(Playable::Track)
                 }
             }
-            Playable::Episode(episode) => Some(Playable::Episode(episode)),
+            // No other playable types supported
+            _ => None,
         });
         let playable = playable_full.as_ref();
 
@@ -211,7 +210,7 @@ impl MprisPlayer {
                 playable
                     .map(|t| match t {
                         Playable::Track(t) => t.title.clone(),
-                        Playable::Episode(ep) => ep.name.clone(),
+                        Playable::Track(_) => String::new(),
                     })
                     .unwrap_or_default()
                     .into(),
@@ -416,30 +415,8 @@ impl MprisPlayer {
                     }
                 }
             }
-            Some(UriType::Show) => {
-                if let Some(mut show) = self.spotify.api.show(&id) {
-                    let spotify = self.spotify.clone();
-                    show.load_all_episodes(spotify);
-                    if let Some(e) = &show.episodes {
-                        let should_shuffle = self.queue.get_shuffle();
-                        self.queue.clear();
-                        let mut ep: Vec<Episode> = e.clone();
-                        ep.reverse();
-                        let index = self.queue.append_next(
-                            &ep.iter()
-                                .map(|episode| Playable::Episode(episode.clone()))
-                                .collect(),
-                        );
-                        self.queue.play(index, should_shuffle, should_shuffle)
-                    }
-                }
-            }
-            Some(UriType::Episode) => {
-                if let Some(e) = self.spotify.api.episode(&id) {
-                    self.queue.clear();
-                    self.queue.append(Playable::Episode(e));
-                    self.queue.play(0, false, false)
-                }
+            Some(UriType::Show) | Some(UriType::Episode) => {
+                // Shows and episodes are not supported on YouTube Music
             }
             Some(UriType::Artist) => {
                 let tracks = self.spotify.api.artist_top_tracks(&id);

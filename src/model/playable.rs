@@ -1,7 +1,6 @@
 use crate::library::Library;
 use crate::model::album::Album;
 use crate::model::artist::Artist;
-use crate::model::episode::Episode;
 use crate::model::track::Track;
 use crate::queue::Queue;
 use crate::traits::{ListItem, ViewExt};
@@ -13,7 +12,6 @@ use std::sync::Arc;
 #[serde(tag = "type")]
 pub enum Playable {
     Track(Track),
-    Episode(Episode),
 }
 
 impl Playable {
@@ -46,7 +44,6 @@ impl Playable {
             .replace(
                 "%title",
                 match playable.clone() {
-                    Self::Episode(episode) => episode.name,
                     Self::Track(track) => track.title,
                 }
                 .as_str(),
@@ -55,16 +52,12 @@ impl Playable {
                 "%album",
                 match playable.clone() {
                     Self::Track(track) => track.album.unwrap_or_default(),
-                    _ => String::new(),
                 }
                 .as_str(),
             )
             .replace(
                 "%saved",
-                if library.is_saved_track(&match playable.clone() {
-                    Self::Episode(episode) => Self::Episode(episode),
-                    Self::Track(track) => Self::Track(track),
-                }) {
+                if library.is_saved_track(playable) {
                     if library.cfg.values().use_nerdfont.unwrap_or_default() {
                         "\u{f012c}"
                     } else {
@@ -80,21 +73,18 @@ impl Playable {
     pub fn id(&self) -> Option<String> {
         match self {
             Self::Track(track) => track.id.clone(),
-            Self::Episode(episode) => Some(episode.id.clone()),
         }
     }
 
     pub fn cover_url(&self) -> Option<String> {
         match self {
             Self::Track(track) => track.cover_url.clone(),
-            Self::Episode(episode) => episode.cover_url.clone(),
         }
     }
 
     pub fn duration(&self) -> u32 {
         match self {
             Self::Track(track) => track.duration,
-            Self::Episode(episode) => episode.duration,
         }
     }
 
@@ -105,14 +95,12 @@ impl Playable {
     pub fn title(&self) -> String {
         match self {
             Self::Track(track) => track.title.clone(),
-            Self::Episode(episode) => episode.name.clone(),
         }
     }
 
     pub fn as_listitem(&self) -> Box<dyn ListItem> {
         match self {
             Self::Track(track) => track.as_listitem(),
-            Self::Episode(episode) => episode.as_listitem(),
         }
     }
 }
@@ -121,7 +109,6 @@ impl fmt::Display for Playable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Track(track) => track.fmt(f),
-            Self::Episode(episode) => episode.fmt(f),
         }
     }
 }

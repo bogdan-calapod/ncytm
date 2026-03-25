@@ -303,15 +303,6 @@ impl Application {
                         track.cover_url.as_deref(),
                     );
                 }
-                Playable::Episode(episode) => {
-                    handle.set_metadata(
-                        Some(&episode.name),
-                        None, // Episodes don't have show_name field
-                        None,
-                        Some(episode.duration as u64),
-                        episode.cover_url.as_deref(),
-                    );
-                }
             }
         }
 
@@ -528,15 +519,6 @@ impl Application {
                         track.album.as_deref(),
                         Some(track.duration as u64),
                         track.cover_url.as_deref(),
-                    );
-                }
-                Playable::Episode(episode) => {
-                    handle.set_metadata(
-                        Some(&episode.name),
-                        None,
-                        None,
-                        Some(episode.duration as u64),
-                        episode.cover_url.as_deref(),
                     );
                 }
             }

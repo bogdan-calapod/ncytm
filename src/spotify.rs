@@ -60,8 +60,6 @@ impl FromStr for UriType {
                 "album" => Ok(Self::Album),
                 "artist" | "channel" => Ok(Self::Artist),
                 "playlist" => Ok(Self::Playlist),
-                "show" => Ok(Self::Show),
-                "episode" => Ok(Self::Episode),
                 _ => Err(format!("Unknown URI type: {}", s)),
             }
         } else {
