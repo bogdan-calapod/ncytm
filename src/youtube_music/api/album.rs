@@ -95,7 +95,11 @@ fn parse_album_response(response: &Value, browse_id: &str) -> AlbumPage {
 
 /// Parse album header information.
 fn parse_album_header(response: &Value, browse_id: &str) -> Option<AlbumDetails> {
-    // Try to find header in different locations
+    // Try to find header in different locations:
+    //   - Classic layout: header.musicDetailHeaderRenderer
+    //   - Immersive layout: header.musicImmersiveHeaderRenderer
+    //   - 2024 layout: contents.twoColumnBrowseResultsRenderer.tabs[0].tabRenderer.content
+    //                  .sectionListRenderer.contents[0].musicResponsiveHeaderRenderer
     let header = response
         .get("header")
         .and_then(|h| h.get("musicDetailHeaderRenderer"))
@@ -103,6 +107,9 @@ fn parse_album_header(response: &Value, browse_id: &str) -> Option<AlbumDetails>
             response
                 .get("header")
                 .and_then(|h| h.get("musicImmersiveHeaderRenderer"))
+        })
+        .or_else(|| {
+            response.pointer("/contents/twoColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicResponsiveHeaderRenderer")
         })?;
 
     // Get title
@@ -250,13 +257,16 @@ fn parse_album_header(response: &Value, browse_id: &str) -> Option<AlbumDetails>
 fn parse_album_tracks(response: &Value) -> Vec<AlbumTrack> {
     let mut tracks = Vec::new();
 
-    // Find the music shelf containing tracks
-    // Path: contents.singleColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.sectionListRenderer.contents[0].musicShelfRenderer
+    // Real YTM WEB_REMIX layout: twoColumnBrowseResultsRenderer → secondaryContents.
+    // Tracks are under musicShelfRenderer (albums) or musicPlaylistShelfRenderer.
+    // Fall back to the legacy singleColumnBrowseResultsRenderer for older responses.
     let shelf = response
-        .pointer("/contents/singleColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicShelfRenderer")
+        .pointer("/contents/twoColumnBrowseResultsRenderer/secondaryContents/sectionListRenderer/contents/0/musicShelfRenderer")
         .or_else(|| {
-            // Alternative path for some album responses
-            response.pointer("/contents/twoColumnBrowseResultsRenderer/secondaryContents/sectionListRenderer/contents/0/musicShelfRenderer")
+            response.pointer("/contents/twoColumnBrowseResultsRenderer/secondaryContents/sectionListRenderer/contents/0/musicPlaylistShelfRenderer")
+        })
+        .or_else(|| {
+            response.pointer("/contents/singleColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicShelfRenderer")
         });
 
     if let Some(shelf) = shelf
@@ -276,12 +286,11 @@ fn parse_album_tracks(response: &Value) -> Vec<AlbumTrack> {
 fn parse_album_track(item: &Value, track_number: u32) -> Option<AlbumTrack> {
     let renderer = item.get("musicResponsiveListItemRenderer")?;
 
-    // Get video ID
+    // Get video ID — prefer the play button overlay (most reliable), then playlistItemData,
+    // then the title run's watchEndpoint.
     let video_id = renderer
-        .pointer("/playlistItemData/videoId")
-        .or_else(|| {
-            renderer.pointer("/overlay/musicItemThumbnailOverlayRenderer/content/musicPlayButtonRenderer/playNavigationEndpoint/watchEndpoint/videoId")
-        })
+        .pointer("/overlay/musicItemThumbnailOverlayRenderer/content/musicPlayButtonRenderer/playNavigationEndpoint/watchEndpoint/videoId")
+        .or_else(|| renderer.pointer("/playlistItemData/videoId"))
         .or_else(|| {
             renderer.pointer("/flexColumns/0/musicResponsiveListItemFlexColumnRenderer/text/runs/0/navigationEndpoint/watchEndpoint/videoId")
         })
@@ -393,13 +402,12 @@ fn parse_duration(duration_str: &str) -> Option<u32> {
 mod tests {
     use super::*;
 
+    /// Mock response matching the real YouTube Music twoColumnBrowseResultsRenderer layout.
     fn mock_album_response() -> Value {
         json!({
             "header": {
                 "musicDetailHeaderRenderer": {
-                    "title": {
-                        "runs": [{"text": "Test Album"}]
-                    },
+                    "title": { "runs": [{"text": "Test Album"}] },
                     "subtitle": {
                         "runs": [
                             {"text": "Album"},
@@ -407,9 +415,7 @@ mod tests {
                             {
                                 "text": "Test Artist",
                                 "navigationEndpoint": {
-                                    "browseEndpoint": {
-                                        "browseId": "UCtest123"
-                                    }
+                                    "browseEndpoint": { "browseId": "UCtest123" }
                                 }
                             },
                             {"text": " • "},
@@ -435,9 +441,7 @@ mod tests {
                             "items": [{
                                 "menuNavigationItemRenderer": {
                                     "navigationEndpoint": {
-                                        "watchEndpoint": {
-                                            "playlistId": "OLAK5uy_test123"
-                                        }
+                                        "watchEndpoint": { "playlistId": "OLAK5uy_test123" }
                                     }
                                 }
                             }]
@@ -446,101 +450,99 @@ mod tests {
                 }
             },
             "contents": {
-                "singleColumnBrowseResultsRenderer": {
-                    "tabs": [{
-                        "tabRenderer": {
-                            "content": {
-                                "sectionListRenderer": {
-                                    "contents": [{
-                                        "musicShelfRenderer": {
-                                            "contents": [
-                                                {
-                                                    "musicResponsiveListItemRenderer": {
-                                                        "playlistItemData": {
-                                                            "videoId": "video1"
-                                                        },
-                                                        "flexColumns": [
-                                                            {
-                                                                "musicResponsiveListItemFlexColumnRenderer": {
-                                                                    "text": {
-                                                                        "runs": [{"text": "Track One"}]
-                                                                    }
-                                                                }
-                                                            },
-                                                            {
-                                                                "musicResponsiveListItemFlexColumnRenderer": {
-                                                                    "text": {
-                                                                        "runs": [
-                                                                            {
-                                                                                "text": "Test Artist",
-                                                                                "navigationEndpoint": {
-                                                                                    "browseEndpoint": {
-                                                                                        "browseId": "UCtest123"
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                        ]
-                                                                    }
+                "twoColumnBrowseResultsRenderer": {
+                    "secondaryContents": {
+                        "sectionListRenderer": {
+                            "contents": [{
+                                "musicShelfRenderer": {
+                                    "contents": [
+                                        {
+                                            "musicResponsiveListItemRenderer": {
+                                                "overlay": {
+                                                    "musicItemThumbnailOverlayRenderer": {
+                                                        "content": {
+                                                            "musicPlayButtonRenderer": {
+                                                                "playNavigationEndpoint": {
+                                                                    "watchEndpoint": { "videoId": "video1" }
                                                                 }
                                                             }
-                                                        ],
-                                                        "fixedColumns": [{
-                                                            "musicResponsiveListItemFixedColumnRenderer": {
-                                                                "text": {
-                                                                    "runs": [{"text": "3:30"}]
-                                                                }
-                                                            }
-                                                        }]
+                                                        }
                                                     }
                                                 },
-                                                {
-                                                    "musicResponsiveListItemRenderer": {
-                                                        "playlistItemData": {
-                                                            "videoId": "video2"
-                                                        },
-                                                        "flexColumns": [
-                                                            {
-                                                                "musicResponsiveListItemFlexColumnRenderer": {
-                                                                    "text": {
-                                                                        "runs": [{"text": "Track Two"}]
+                                                "flexColumns": [
+                                                    {
+                                                        "musicResponsiveListItemFlexColumnRenderer": {
+                                                            "text": { "runs": [{"text": "Track One"}] }
+                                                        }
+                                                    },
+                                                    {
+                                                        "musicResponsiveListItemFlexColumnRenderer": {
+                                                            "text": {
+                                                                "runs": [{
+                                                                    "text": "Test Artist",
+                                                                    "navigationEndpoint": {
+                                                                        "browseEndpoint": { "browseId": "UCtest123" }
                                                                     }
-                                                                }
-                                                            },
-                                                            {
-                                                                "musicResponsiveListItemFlexColumnRenderer": {
-                                                                    "text": {
-                                                                        "runs": [
-                                                                            {"text": "Test Artist"},
-                                                                            {"text": " & "},
-                                                                            {"text": "Other Artist"}
-                                                                        ]
-                                                                    }
-                                                                }
+                                                                }]
                                                             }
-                                                        ],
-                                                        "fixedColumns": [{
-                                                            "musicResponsiveListItemFixedColumnRenderer": {
-                                                                "text": {
-                                                                    "runs": [{"text": "4:15"}]
-                                                                }
-                                                            }
-                                                        }],
-                                                        "badges": [{
-                                                            "musicInlineBadgeRenderer": {
-                                                                "icon": {
-                                                                    "iconType": "MUSIC_EXPLICIT_BADGE"
-                                                                }
-                                                            }
-                                                        }]
+                                                        }
                                                     }
-                                                }
-                                            ]
+                                                ],
+                                                "fixedColumns": [{
+                                                    "musicResponsiveListItemFixedColumnRenderer": {
+                                                        "text": { "runs": [{"text": "3:30"}] }
+                                                    }
+                                                }]
+                                            }
+                                        },
+                                        {
+                                            "musicResponsiveListItemRenderer": {
+                                                "overlay": {
+                                                    "musicItemThumbnailOverlayRenderer": {
+                                                        "content": {
+                                                            "musicPlayButtonRenderer": {
+                                                                "playNavigationEndpoint": {
+                                                                    "watchEndpoint": { "videoId": "video2" }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                "flexColumns": [
+                                                    {
+                                                        "musicResponsiveListItemFlexColumnRenderer": {
+                                                            "text": { "runs": [{"text": "Track Two"}] }
+                                                        }
+                                                    },
+                                                    {
+                                                        "musicResponsiveListItemFlexColumnRenderer": {
+                                                            "text": {
+                                                                "runs": [
+                                                                    {"text": "Test Artist"},
+                                                                    {"text": " & "},
+                                                                    {"text": "Other Artist"}
+                                                                ]
+                                                            }
+                                                        }
+                                                    }
+                                                ],
+                                                "fixedColumns": [{
+                                                    "musicResponsiveListItemFixedColumnRenderer": {
+                                                        "text": { "runs": [{"text": "4:15"}] }
+                                                    }
+                                                }],
+                                                "badges": [{
+                                                    "musicInlineBadgeRenderer": {
+                                                        "icon": { "iconType": "MUSIC_EXPLICIT_BADGE" }
+                                                    }
+                                                }]
+                                            }
                                         }
-                                    }]
+                                    ]
                                 }
-                            }
+                            }]
                         }
-                    }]
+                    }
                 }
             }
         })
