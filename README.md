@@ -29,6 +29,7 @@ ncytm aims to provide a simple and resource-friendly terminal interface for YouT
 - Vim keybindings out of the box
 - Cookie-based authentication (copy from browser)
 - macOS media keys and Now Playing integration
+- Smart previous track behavior: restarts current track if more than 15% played, otherwise goes to previous track
 
 ## Installation
 
