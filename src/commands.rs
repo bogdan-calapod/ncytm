@@ -1,6 +1,6 @@
 use std::collections::HashMap;
+use std::io::Write;
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::application::UserData;
 use crate::command::{
@@ -27,6 +27,22 @@ use cursive::views::Dialog;
 use log::{debug, error, info};
 use ncytm::CONFIGURATION_FILE_NAME;
 use std::cell::RefCell;
+
+/// Debug log to file
+fn dlog(msg: &str) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/ncytm_debug.log")
+    {
+        let _ = writeln!(
+            f,
+            "[{}] {}",
+            chrono::Local::now().format("%H:%M:%S%.3f"),
+            msg
+        );
+    }
+}
 
 pub enum CommandResult {
     Consumed(Option<String>),
@@ -136,9 +152,33 @@ impl CommandManager {
                 Ok(None)
             }
             Command::Previous => {
-                if self.spotify.get_current_progress() < Duration::from_secs(5) {
+                // Check if we should go to previous track or restart current track
+                // If less than 15% played, go to previous track, otherwise restart
+                let should_go_previous = if let Some(current) = self.queue.get_current() {
+                    let duration_secs = current.duration(); // duration is in seconds
+                    let progress_secs = self.spotify.get_current_progress().as_secs();
+                    let threshold_secs = (duration_secs as f32 * 0.15) as u64;
+
+                    // Debug logging
+                    dlog(&format!(
+                        "Previous command: duration={}s, progress={}s, threshold={}s (15%), should_go_previous={}",
+                        duration_secs,
+                        progress_secs,
+                        threshold_secs,
+                        progress_secs < threshold_secs
+                    ));
+
+                    progress_secs < threshold_secs
+                } else {
+                    dlog("Previous command: no current track");
+                    true // If no current track, default to previous behavior
+                };
+
+                if should_go_previous {
+                    dlog("Previous command: going to previous track");
                     self.queue.previous();
                 } else {
+                    dlog("Previous command: restarting current track");
                     self.spotify.seek(0);
                 }
                 Ok(None)

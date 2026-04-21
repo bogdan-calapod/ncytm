@@ -93,6 +93,7 @@ enum PlayerCommand {
     Pause,
     Stop,
     SetVolume(f32),
+    Restart,
     Shutdown,
 }
 
@@ -187,9 +188,18 @@ impl Spotify {
         let since = self.since.clone();
         let events = self.events.clone();
         let track_finished = self.track_finished.clone();
+        let current_track = self.current_track.clone();
 
         thread::spawn(move || {
-            run_player_thread(cookies, command_rx, status, since, events, track_finished);
+            run_player_thread(
+                cookies,
+                command_rx,
+                status,
+                since,
+                events,
+                track_finished,
+                current_track,
+            );
         });
 
         dlog("Player worker thread started");
@@ -305,8 +315,19 @@ impl Spotify {
         }
     }
 
-    pub fn seek(&self, _position_ms: u32) {
-        dlog("Seek not yet implemented");
+    pub fn seek(&self, position_ms: u32) {
+        // For now, only support seeking to position 0 (restart track)
+        if position_ms == 0 {
+            dlog("Seeking to position 0: sending Restart command");
+            if let Some(ref tx) = *self.command_tx.read().unwrap() {
+                let _ = tx.send(PlayerCommand::Restart);
+            }
+        } else {
+            dlog(&format!(
+                "Seek to position {} not yet implemented",
+                position_ms
+            ));
+        }
     }
 
     pub fn seek_relative(&self, _delta_ms: i32) {
@@ -343,6 +364,7 @@ fn run_player_thread(
     since: Arc<RwLock<Option<SystemTime>>>,
     events: EventManager,
     track_finished: Arc<std::sync::atomic::AtomicBool>,
+    current_track: Arc<RwLock<Option<Playable>>>,
 ) {
     dlog("Player thread starting");
 
@@ -442,6 +464,50 @@ fn run_player_thread(
                     }
                     PlayerCommand::SetVolume(vol) => {
                         player.set_volume(vol);
+                    }
+                    PlayerCommand::Restart => {
+                        dlog("Restarting current track");
+                        // Get the current track info from current_track
+                        if let Some(track) = current_track.read().unwrap().clone() {
+                            let video_id = track.id().unwrap_or_default();
+                            let was_playing =
+                                matches!(*status.read().unwrap(), PlayerEvent::Playing(_));
+
+                            dlog(&format!(
+                                "Restarting track {}, was_playing={}",
+                                video_id, was_playing
+                            ));
+
+                            // Fetch and reload the track
+                            let stream_result = rt.block_on(async {
+                                get_stream_url(&client, &video_id, AudioQuality::High).await
+                            });
+
+                            match stream_result {
+                                Ok(stream_info) => {
+                                    dlog("Got stream URL for restart");
+                                    match player.load_url(&stream_info.url, was_playing) {
+                                        Ok(()) => {
+                                            dlog("Track restarted successfully");
+                                            if was_playing {
+                                                *status.write().unwrap() =
+                                                    PlayerEvent::Playing(SystemTime::now());
+                                                *since.write().unwrap() = Some(SystemTime::now());
+                                            }
+                                            events.trigger();
+                                        }
+                                        Err(e) => {
+                                            dlog(&format!("Failed to restart track: {:?}", e));
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    dlog(&format!("Failed to get stream URL for restart: {:?}", e));
+                                }
+                            }
+                        } else {
+                            dlog("Cannot restart: no current track");
+                        }
                     }
                     PlayerCommand::Shutdown => {
                         dlog("Shutting down player thread");

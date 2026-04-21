@@ -560,7 +560,23 @@ impl Application {
                             self.update_media_metadata();
                         }
                         MediaControlEvent::Previous => {
-                            self.queue.previous();
+                            // Check if we should go to previous track or restart current track
+                            // If less than 15% played, go to previous track, otherwise restart
+                            let should_go_previous = if let Some(current) = self.queue.get_current()
+                            {
+                                let duration_secs = current.duration(); // duration is in seconds
+                                let progress_secs = self.spotify.get_current_progress().as_secs();
+                                let threshold_secs = (duration_secs as f32 * 0.15) as u64;
+                                progress_secs < threshold_secs
+                            } else {
+                                true // If no current track, default to previous behavior
+                            };
+
+                            if should_go_previous {
+                                self.queue.previous();
+                            } else {
+                                self.spotify.seek(0);
+                            }
                             self.update_media_metadata();
                         }
                         MediaControlEvent::Stop => {
