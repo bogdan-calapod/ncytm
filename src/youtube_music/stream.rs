@@ -118,6 +118,27 @@ pub async fn get_audio_streams(
     // Remove old file if exists
     let _ = std::fs::remove_file(&temp_path);
 
+    // First, get the duration before downloading
+    let duration_output = std::process::Command::new("yt-dlp")
+        .args([
+            "--print",
+            "%(duration)s",
+            "--no-warnings",
+            &format!("https://music.youtube.com/watch?v={}", video_id),
+        ])
+        .output();
+
+    let duration_seconds = duration_output.ok().and_then(|out| {
+        if out.status.success() {
+            let duration_str = String::from_utf8_lossy(&out.stdout);
+            duration_str.trim().parse::<u32>().ok()
+        } else {
+            None
+        }
+    });
+
+    dlog(&format!("Extracted duration: {:?}", duration_seconds));
+
     let output = std::process::Command::new("yt-dlp")
         .args([
             "-f",
@@ -153,7 +174,7 @@ pub async fn get_audio_streams(
                         sample_rate: Some(44100),
                         channels: Some(2),
                         content_length: Some(metadata.len()),
-                        duration_seconds: None,
+                        duration_seconds,
                         expires_at: None,
                     }]);
                 }
@@ -232,7 +253,7 @@ async fn get_audio_streams_innertube(
     }
 
     // Sort by bitrate (highest first)
-    streams.sort_by(|a, b| b.bitrate.cmp(&a.bitrate));
+    streams.sort_by_key(|b| std::cmp::Reverse(b.bitrate));
 
     Ok(streams)
 }
