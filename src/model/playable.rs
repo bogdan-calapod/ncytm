@@ -88,6 +88,12 @@ impl Playable {
         }
     }
 
+    pub fn set_duration(&mut self, duration: u32) {
+        match self {
+            Self::Track(track) => track.duration = duration,
+        }
+    }
+
     pub fn duration_str(&self) -> String {
         seconds_to_hms(self.duration())
     }

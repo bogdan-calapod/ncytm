@@ -44,14 +44,25 @@ impl Queue {
     pub fn new(spotify: Spotify, cfg: Arc<Config>, library: Arc<Library>) -> Self {
         let queue_state = cfg.state().queuestate.clone();
 
-        Self {
-            queue: Arc::new(RwLock::new(queue_state.queue)),
+        let queue = Arc::new(RwLock::new(queue_state.queue));
+
+        let q = Self {
+            queue: queue.clone(),
             spotify: spotify.clone(),
             current_track: RwLock::new(queue_state.current_track),
             random_order: RwLock::new(queue_state.random_order),
             cfg,
             library,
-        }
+        };
+
+        // Give the player thread a reference to the queue so it can update
+        // track durations when yt-dlp resolves them after loading a stream.
+        spotify.set_queue(queue);
+
+        // Eagerly resolve any 0-duration tracks restored from persistent state.
+        spotify.resolve_durations();
+
+        q
     }
 
     /// The index of the next item in `self.queue` that should be played. None
@@ -122,17 +133,17 @@ impl Queue {
             let mut random_order = self.random_order.write().unwrap();
             if let Some(order) = random_order.as_mut() {
                 let next_i = order.iter().position(|&i| i == index).unwrap();
-                // shift everything after the insertion in order
                 for item in order.iter_mut() {
                     if *item > index {
                         *item += 1;
                     }
                 }
-                // finally, add the next track index
                 order.insert(next_i + 1, index + 1);
             }
             let mut q = self.queue.write().unwrap();
             q.insert(index + 1, track);
+            drop(q);
+            self.spotify.resolve_durations();
         } else {
             self.append(track);
         }
@@ -147,6 +158,9 @@ impl Queue {
 
         let mut q = self.queue.write().unwrap();
         q.push(track);
+        drop(q);
+
+        self.spotify.resolve_durations();
     }
 
     /// Append `tracks` after the currently playing item, taking into account
@@ -169,6 +183,9 @@ impl Queue {
         for (i, track) in (first..).zip(tracks.iter()) {
             q.insert(i, track.clone());
         }
+
+        drop(q);
+        self.spotify.resolve_durations();
 
         first
     }

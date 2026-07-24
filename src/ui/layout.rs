@@ -25,6 +25,7 @@ pub struct Layout {
     screens: HashMap<String, Box<dyn ViewExt>>,
     stack: HashMap<String, Vec<Box<dyn ViewExt>>>,
     statusbar: Box<dyn View>,
+    statusbar_height: usize,
     focus: Option<String>,
     cmdline: EditView,
     cmdline_focus: bool,
@@ -93,6 +94,7 @@ impl Layout {
             screens: HashMap::new(),
             stack: HashMap::new(),
             statusbar: status.into_boxed_view(),
+            statusbar_height: 2,
             focus: None,
             cmdline: command_line_input,
             cmdline_focus: false,
@@ -300,13 +302,16 @@ impl View for Layout {
             // screen content
             let printer = &printer
                 .offset((0, 1))
-                .cropped((printer.size.x, printer.size.y - 3 - cmdline_height))
+                .cropped((
+                    printer.size.x,
+                    printer.size.y - 1 - self.statusbar_height - cmdline_height,
+                ))
                 .focused(true);
             view.draw(printer);
         }
 
         self.statusbar
-            .draw(&printer.offset((0, printer.size.y - 2 - cmdline_height)));
+            .draw(&printer.offset((0, printer.size.y - self.statusbar_height - cmdline_height)));
 
         if let Ok(Some(r)) = result {
             printer.print_hline((0, printer.size.y - cmdline_height), printer.size.x, " ");
@@ -332,12 +337,15 @@ impl View for Layout {
     fn layout(&mut self, size: Vec2) {
         self.last_size = size;
 
-        self.statusbar.layout(Vec2::new(size.x, 2));
+        self.statusbar_height = self.statusbar.required_size(Vec2::new(size.x, 0)).y;
+        self.statusbar
+            .layout(Vec2::new(size.x, self.statusbar_height));
 
         self.cmdline.layout(Vec2::new(size.x, 1));
 
+        let sb_h = self.statusbar_height;
         if let Some(view) = self.get_current_view_mut() {
-            view.layout(Vec2::new(size.x, size.y - 3));
+            view.layout(Vec2::new(size.x, size.y.saturating_sub(1 + sb_h)));
         }
     }
 
@@ -417,12 +425,17 @@ impl View for Layout {
                     cmdline_height += 1;
                 }
 
-                if position.y >= self.last_size.y.saturating_sub(2 + cmdline_height)
+                if position.y
+                    >= self
+                        .last_size
+                        .y
+                        .saturating_sub(self.statusbar_height + cmdline_height)
                     && position.y < self.last_size.y - cmdline_height
                 {
-                    self.statusbar.on_event(
-                        event.relativized(Vec2::new(0, self.last_size.y - 2 - cmdline_height)),
-                    );
+                    self.statusbar.on_event(event.relativized(Vec2::new(
+                        0,
+                        self.last_size.y - self.statusbar_height - cmdline_height,
+                    )));
                     return EventResult::consumed();
                 }
 

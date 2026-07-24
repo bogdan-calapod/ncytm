@@ -50,7 +50,8 @@ crossbeam-channel = "0.5"
 zbus = {version = "5.14.0", default-features = false, features = ["tokio"], optional = true}
 fern = "0.7"
 futures = "0.3"
-ioctl-rs = {version = "0.2", optional = true}
+
+viuer = {version = "0.9", default-features = false, features = ["print-file"], optional = true}
 libc = "0.2.183"
 log = "0.4.29"
 pancurses = {version = "0.17.0", optional = true}
@@ -58,6 +59,7 @@ parse_duration = "2.1.1"
 platform-dirs = "0.3.0"
 rand = "0.10"
 regex = "1"
+base64 = "0.22"
 reqwest = {version = "0.12", default-features = false, features = ["json", "cookies", "rustls-tls", "blocking"]}
 serde = {version = "1.0", features = ["derive"]}
 serde_cbor = "0.11.2"
@@ -94,7 +96,6 @@ optional = true
 
 [features]
 browser_auth = ["chromiumoxide"] # Browser-based cookie authentication
-cover = ["ioctl-rs"] # Support displaying the album cover
 default = ["share_clipboard", "media_control", "notify", "crossterm_backend", "browser_auth"]
 media_control = ["souvlaki", "winit"] # Cross-platform media keys support (macOS, Windows, Linux)
 mpris = ["zbus"] # Allow ncytm to be controlled via MPRIS API (Linux only, deprecated in favor of media_control)

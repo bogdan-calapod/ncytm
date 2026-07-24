@@ -92,7 +92,6 @@ pub struct ConfigValues {
     pub gapless: Option<bool>,
     pub shuffle: Option<bool>,
     pub repeat: Option<queue::RepeatSetting>,
-    pub cover_max_scale: Option<f32>,
     pub playback_state: Option<PlaybackState>,
     pub track_format: Option<TrackFormat>,
     pub notification_format: Option<NotificationFormat>,

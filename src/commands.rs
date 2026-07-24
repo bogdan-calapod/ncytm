@@ -139,6 +139,7 @@ impl CommandManager {
                     s.queuestate.track_progress = self.spotify.get_current_progress();
                 });
                 self.config.save_state();
+                self.spotify.shutdown();
                 s.quit();
                 Ok(None)
             }
@@ -318,6 +319,7 @@ impl CommandManager {
             }
             Command::Reconnect => {
                 self.spotify.shutdown();
+                self.spotify.start_worker(None)?;
                 Ok(None)
             }
             Command::AddCurrent => {
@@ -427,7 +429,7 @@ impl CommandManager {
     pub fn unregister_keybindings(&self, cursive: &mut Cursive) {
         let kb = self.bindings.borrow();
 
-        for (k, _v) in kb.iter() {
+        for k in kb.keys() {
             if let Some(binding) = Self::parse_keybinding(k) {
                 cursive.clear_global_callbacks(binding);
             }
@@ -510,8 +512,6 @@ impl CommandManager {
         kb.insert("F1".into(), vec![Command::Focus("queue".into())]);
         kb.insert("F2".into(), vec![Command::Focus("search".into())]);
         kb.insert("F3".into(), vec![Command::Focus("library".into())]);
-        #[cfg(feature = "cover")]
-        kb.insert("F8".into(), vec![Command::Focus("cover".into())]);
         kb.insert("?".into(), vec![Command::Help]);
         kb.insert("Backspace".into(), vec![Command::Back]);
 

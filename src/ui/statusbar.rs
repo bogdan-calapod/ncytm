@@ -110,17 +110,23 @@ impl View for StatusBar {
             ColorType::Color(*printer.theme.palette.custom("statusbar_bg").unwrap()),
         );
 
-        printer.print(
-            (0, 0),
-            &vec![' '; printer.size.x].into_iter().collect::<String>(),
-        );
-        printer.with_color(style, |printer| {
-            printer.print(
-                (0, 1),
-                &vec![' '; printer.size.x].into_iter().collect::<String>(),
-            );
+        // Fill entire statusbar area with background.
+        for y in 0..printer.size.y {
+            let s = if y == 0 { &style_bar_bg } else { &style };
+            printer.with_color(*s, |printer| {
+                printer.print(
+                    (0, y),
+                    &vec![' '; printer.size.x].into_iter().collect::<String>(),
+                );
+            });
+        }
+
+        // Progress bar background on row 0
+        printer.with_color(style_bar_bg, |printer| {
+            printer.print((0, 0), &"┉".repeat(printer.size.x));
         });
 
+        // Text row: playback indicator
         printer.with_color(style, |printer| {
             printer.print((1, 1), self.playback_indicator());
         });
@@ -161,10 +167,6 @@ impl View for StatusBar {
 
         let volume = self.volume_display();
 
-        printer.with_color(style_bar_bg, |printer| {
-            printer.print((0, 0), &"┉".repeat(printer.size.x));
-        });
-
         let elapsed = self.spotify.get_current_progress();
         let elapsed_ms = elapsed.as_millis() as u32;
 
@@ -175,17 +177,11 @@ impl View for StatusBar {
             None => "".to_string(),
         };
 
-        let right = updating.to_string()
-            + repeat
-            + shuffle
-            // + saved
-            + &playback_duration_status
-            + &volume;
+        let right = updating.to_string() + repeat + shuffle + &playback_duration_status + &volume;
         let offset = HAlign::Right.get_offset(right.width(), printer.size.x);
 
         printer.with_color(style, |printer| {
             if let Some(ref t) = self.queue.get_current() {
-                // Show "Loading track {name}..." when loading, otherwise show normal track info
                 let track_info =
                     if matches!(self.spotify.get_current_status(), PlayerEvent::Loading) {
                         format!("Loading {}...", t.title())
@@ -193,13 +189,10 @@ impl View for StatusBar {
                         self.format_track(t)
                     };
 
-                // Calculate available space for track info (leave room for right-side content)
-                let left_start = 4; // playback indicator takes ~4 chars
+                let left_start = 4;
                 let available_width = offset.saturating_sub(left_start + 1);
 
-                // Truncate track info if it's too long
                 if track_info.width() > available_width && available_width > 3 {
-                    // Find a good cut point that respects character boundaries
                     let mut truncated = String::new();
                     let mut current_width = 0;
                     for c in track_info.chars() {
@@ -219,9 +212,9 @@ impl View for StatusBar {
             printer.print((offset, 1), &right);
         });
 
+        // Progress bar on row 0
         if let Some(t) = self.queue.get_current() {
             printer.with_color(style_bar, |printer| {
-                // Convert elapsed from ms to seconds for comparison with duration (which is in seconds)
                 let elapsed_secs = elapsed_ms / 1000;
                 let duration_width = elapsed_secs
                     .checked_mul(printer.size.x as u32)

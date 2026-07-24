@@ -260,9 +260,6 @@ impl Application {
 
         let queueview = ui::queue::QueueView::new(queue.clone(), library.clone());
 
-        #[cfg(feature = "cover")]
-        let coverview = ui::cover::CoverView::new(queue.clone(), library.clone(), &configuration);
-
         let status = ui::statusbar::StatusBar::new(queue.clone(), Arc::clone(&library));
 
         let mut layout =
@@ -270,9 +267,6 @@ impl Application {
                 .screen("search", search.with_name("search"))
                 .screen("library", libraryview.with_name("library"))
                 .screen("queue", queueview);
-
-        #[cfg(feature = "cover")]
-        layout.add_screen("cover", coverview.with_name("cover"));
 
         // initial screen is library
         let initial_screen = configuration
@@ -463,9 +457,6 @@ impl Application {
 
         let queueview = ui::queue::QueueView::new(queue.clone(), library.clone());
 
-        #[cfg(feature = "cover")]
-        let coverview = ui::cover::CoverView::new(queue.clone(), library.clone(), &configuration);
-
         let status = ui::statusbar::StatusBar::new(queue.clone(), Arc::clone(&library));
 
         let mut layout =
@@ -473,9 +464,6 @@ impl Application {
                 .screen("search", search.with_name("search"))
                 .screen("library", libraryview.with_name("library"))
                 .screen("queue", queueview);
-
-        #[cfg(feature = "cover")]
-        layout.add_screen("cover", coverview.with_name("cover"));
 
         // initial screen is library
         let initial_screen = configuration
@@ -533,8 +521,10 @@ impl Application {
     /// Start the application and run the event loop.
     pub fn run(&mut self) -> Result<(), String> {
         #[cfg(unix)]
-        let mut signals =
-            Signals::new([SIGTERM, SIGHUP]).expect("could not register signal handler");
+        let mut signals = {
+            let sigs = [SIGTERM, SIGHUP];
+            Signals::new(sigs).expect("could not register signal handler")
+        };
 
         // cursive event loop
         while self.cursive.is_running() {
