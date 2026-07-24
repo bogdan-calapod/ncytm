@@ -297,6 +297,7 @@ fn parse_search_track(item: &Value) -> Option<SearchTrack> {
 
     let mut artists = Vec::new();
     let mut album: Option<AlbumRef> = None;
+    let mut duration_from_flex: Option<u32> = None;
 
     if let Some(runs) = second_column_runs {
         for run in runs {
@@ -330,11 +331,13 @@ fn parse_search_track(item: &Value) -> Option<SearchTrack> {
                     name: text.to_string(),
                     browse_id: None,
                 });
+            } else if text.contains(':') && duration_from_flex.is_none() {
+                duration_from_flex = parse_duration(text);
             }
         }
     }
 
-    // Parse duration from fixedColumns
+    // Parse duration from fixedColumns, fall back to flex column text
     let duration_seconds = renderer
         .get("fixedColumns")
         .and_then(|v| v.as_array())
@@ -345,7 +348,8 @@ fn parse_search_track(item: &Value) -> Option<SearchTrack> {
                     .filter(|s| s.contains(':'))
                     .and_then(parse_duration)
             })
-        });
+        })
+        .or(duration_from_flex);
 
     // Get thumbnail
     let thumbnail_url = renderer

@@ -432,6 +432,7 @@ fn parse_playlist_track(item: &Value) -> Option<PlaylistTrack> {
     let mut artists = Vec::new();
     let mut album: Option<String> = None;
     let mut album_id: Option<String> = None;
+    let mut duration_from_flex: Option<u32> = None;
 
     if let Some(runs) = second_column_runs {
         for run in runs {
@@ -458,11 +459,13 @@ fn parse_playlist_track(item: &Value) -> Option<PlaylistTrack> {
                     name: text.to_string(),
                     browse_id,
                 });
+            } else if text.contains(':') && duration_from_flex.is_none() {
+                duration_from_flex = parse_duration(text);
             }
         }
     }
 
-    // Duration from fixedColumns
+    // Duration from fixedColumns, fall back to flex column text
     let duration_seconds = renderer
         .get("fixedColumns")
         .and_then(|v| v.as_array())
@@ -473,7 +476,8 @@ fn parse_playlist_track(item: &Value) -> Option<PlaylistTrack> {
                     .filter(|s| s.contains(':'))
                     .and_then(parse_duration)
             })
-        });
+        })
+        .or(duration_from_flex);
 
     // Thumbnail
     let thumbnail_url = renderer
