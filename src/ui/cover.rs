@@ -191,6 +191,15 @@ impl CoverView {
     }
 }
 
+impl Drop for CoverView {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.ueberzug.write().unwrap().take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 impl View for CoverView {
     fn draw(&self, printer: &Printer<'_, '_>) {
         // Completely blank out screen

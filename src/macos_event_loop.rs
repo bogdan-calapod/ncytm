@@ -192,33 +192,43 @@ where
 
         fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
             // Process pending commands from the app
-            while let Ok(cmd) = self.cmd_rx.try_recv() {
-                if let Some(ref mut controls) = self.controls {
-                    match cmd {
-                        MediaControlCommand::SetMetadata {
-                            title,
-                            artist,
-                            album,
-                            duration_secs,
-                            cover_url,
-                        } => {
-                            let _ = controls.set_metadata(MediaMetadata {
-                                title: title.as_deref(),
-                                artist: artist.as_deref(),
-                                album: album.as_deref(),
-                                duration: duration_secs.map(Duration::from_secs),
-                                cover_url: cover_url.as_deref(),
-                            });
-                        }
-                        MediaControlCommand::SetPlayback(state) => {
-                            let PlaybackState::Playing { progress_secs } = state;
-                            let playback = MediaPlayback::Playing {
-                                progress: progress_secs
-                                    .map(|s| MediaPosition(Duration::from_secs_f64(s))),
-                            };
-                            let _ = controls.set_playback(playback);
+            loop {
+                match self.cmd_rx.try_recv() {
+                    Ok(cmd) => {
+                        if let Some(ref mut controls) = self.controls {
+                            match cmd {
+                                MediaControlCommand::SetMetadata {
+                                    title,
+                                    artist,
+                                    album,
+                                    duration_secs,
+                                    cover_url,
+                                } => {
+                                    let _ = controls.set_metadata(MediaMetadata {
+                                        title: title.as_deref(),
+                                        artist: artist.as_deref(),
+                                        album: album.as_deref(),
+                                        duration: duration_secs.map(Duration::from_secs),
+                                        cover_url: cover_url.as_deref(),
+                                    });
+                                }
+                                MediaControlCommand::SetPlayback(state) => {
+                                    let PlaybackState::Playing { progress_secs } = state;
+                                    let playback = MediaPlayback::Playing {
+                                        progress: progress_secs
+                                            .map(|s| MediaPosition(Duration::from_secs_f64(s))),
+                                    };
+                                    let _ = controls.set_playback(playback);
+                                }
+                            }
                         }
                     }
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        debug!("App thread exited, stopping winit event loop");
+                        event_loop.exit();
+                        return;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => break,
                 }
             }
 

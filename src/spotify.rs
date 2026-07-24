@@ -14,7 +14,9 @@ use crate::events::EventManager;
 use crate::model::playable::Playable;
 use crate::player::Player;
 use crate::spotify_api::WebApi;
-use crate::youtube_music::{AudioQuality, Cookies, YouTubeMusicClient, get_stream_url};
+use crate::youtube_music::{
+    AudioQuality, Cookies, YouTubeMusicClient, api::player::get_video_duration, get_stream_url,
+};
 
 #[cfg(feature = "mpris")]
 use crate::mpris::MprisManager;
@@ -95,6 +97,13 @@ enum PlayerCommand {
     SetVolume(f32),
     Restart,
     Shutdown,
+    /// Pass the queue's track storage so the player thread can update
+    /// durations when yt-dlp resolves them.
+    SetQueue(Arc<RwLock<Vec<Playable>>>),
+    /// Eagerly resolve all 0-duration tracks in the queue using the YouTube
+    /// player API (lightweight, no yt-dlp). The player thread spawns
+    /// non-blocking tasks and updates the queue as results arrive.
+    ResolveDurations,
 }
 
 /// Playback controller.
@@ -346,6 +355,20 @@ impl Spotify {
         }
     }
 
+    pub fn set_queue(&self, queue: Arc<RwLock<Vec<Playable>>>) {
+        if let Some(ref tx) = *self.command_tx.read().unwrap() {
+            let _ = tx.send(PlayerCommand::SetQueue(queue));
+        }
+    }
+
+    /// Eagerly resolve 0-duration tracks in the queue via the player API.
+    /// Non-blocking — resolution runs asynchronously in the player thread.
+    pub fn resolve_durations(&self) {
+        if let Some(ref tx) = *self.command_tx.read().unwrap() {
+            let _ = tx.send(PlayerCommand::ResolveDurations);
+        }
+    }
+
     pub fn shutdown(&self) {
         dlog("Shutting down player");
         if let Some(ref tx) = *self.command_tx.read().unwrap() {
@@ -403,6 +426,10 @@ fn run_player_thread(
     // UI refresh interval (400ms provides smooth progress bar updates)
     let ui_refresh_interval = Duration::from_millis(400);
 
+    // Shared queue data — set via SetQueue command after Queue construction.
+    #[allow(clippy::type_complexity)]
+    let queue_data = Arc::<RwLock<Option<Arc<RwLock<Vec<Playable>>>>>>::new(RwLock::new(None));
+
     loop {
         // Use recv_timeout to allow periodic UI refresh during playback
         match command_rx.recv_timeout(ui_refresh_interval) {
@@ -426,6 +453,41 @@ fn run_player_thread(
                                     "URL: {}...",
                                     &stream_info.url[..stream_info.url.len().min(100)]
                                 ));
+
+                                // If yt-dlp returned a duration and the track has 0:00,
+                                // update the track model so the UI shows the correct duration.
+                                if let Some(yt_duration) = stream_info.duration_seconds
+                                    && let Some(track) = current_track.read().unwrap().as_ref()
+                                    && track.duration() == 0
+                                    && yt_duration > 0
+                                {
+                                    dlog(&format!(
+                                        "Updating track duration from 0 to {}s (yt-dlp)",
+                                        yt_duration
+                                    ));
+                                    let mut track_mut = current_track.write().unwrap();
+                                    if let Some(ref mut t) = *track_mut {
+                                        t.set_duration(yt_duration);
+                                    }
+                                    drop(track_mut);
+
+                                    // Also update matching entries in the queue so the
+                                    // queue list shows the correct duration.
+                                    if let Some(ref q) = *queue_data.read().unwrap() {
+                                        let mut q_writer = q.write().unwrap();
+                                        for entry in q_writer.iter_mut() {
+                                            if entry.duration() == 0
+                                                && entry.id() == Some(video_id.clone())
+                                            {
+                                                entry.set_duration(yt_duration);
+                                                dlog(&format!(
+                                                    "Updated queue entry duration for {} to {}s",
+                                                    video_id, yt_duration
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
 
                                 dlog("Calling player.load_url...");
                                 match player.load_url(&stream_info.url, start_playing) {
@@ -465,6 +527,71 @@ fn run_player_thread(
                     PlayerCommand::SetVolume(vol) => {
                         player.set_volume(vol);
                     }
+                    PlayerCommand::SetQueue(q) => {
+                        *queue_data.write().unwrap() = Some(q);
+                        dlog("Queue data set in player thread");
+                    }
+                    PlayerCommand::ResolveDurations => {
+                        let video_ids: Vec<String> = {
+                            let guard = queue_data.read().unwrap();
+                            let Some(ref q) = *guard else {
+                                dlog("ResolveDurations: no queue data yet");
+                                continue;
+                            };
+                            let reader = q.read().unwrap();
+                            reader
+                                .iter()
+                                .filter(|e| e.duration() == 0)
+                                .filter_map(|e| e.id())
+                                .map(|s| s.to_string())
+                                .collect()
+                        };
+                        if video_ids.is_empty() {
+                            dlog("ResolveDurations: no 0-duration tracks to resolve");
+                        } else {
+                            dlog(&format!(
+                                "ResolveDurations: resolving {} track(s)",
+                                video_ids.len()
+                            ));
+                            let q = queue_data.clone();
+                            for video_id in video_ids {
+                                let q = q.clone();
+                                let client = client.clone();
+                                let events = events.clone();
+                                rt.spawn(async move {
+                                    match get_video_duration(&client, &video_id).await {
+                                        Ok(duration) if duration > 0 => {
+                                            let guard = q.read().unwrap();
+                                            let Some(ref queue_arc) = *guard else {
+                                                return;
+                                            };
+                                            let mut writer = queue_arc.write().unwrap();
+                                            for entry in writer.iter_mut() {
+                                                if entry.duration() == 0
+                                                    && entry.id() == Some(video_id.clone())
+                                                {
+                                                    dlog(&format!(
+                                                        "Resolved duration for {} to {}s",
+                                                        video_id, duration
+                                                    ));
+                                                    entry.set_duration(duration);
+                                                    break;
+                                                }
+                                            }
+                                            drop(writer);
+                                            events.trigger();
+                                        }
+                                        _ => {
+                                            dlog(&format!(
+                                                "ResolveDurations: no duration for {}",
+                                                video_id
+                                            ));
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
                     PlayerCommand::Restart => {
                         dlog("Restarting current track");
                         // Get the current track info from current_track
@@ -486,6 +613,35 @@ fn run_player_thread(
                             match stream_result {
                                 Ok(stream_info) => {
                                     dlog("Got stream URL for restart");
+
+                                    // Update duration from yt-dlp if needed
+                                    if let Some(yt_duration) = stream_info.duration_seconds
+                                        && yt_duration > 0
+                                    {
+                                        dlog(&format!(
+                                            "Restart: updating track duration from yt-dlp: {}s",
+                                            yt_duration
+                                        ));
+                                        let mut track_mut = current_track.write().unwrap();
+                                        if let Some(ref mut t) = *track_mut
+                                            && t.duration() == 0
+                                        {
+                                            t.set_duration(yt_duration);
+                                        }
+                                        drop(track_mut);
+
+                                        if let Some(ref q) = *queue_data.read().unwrap() {
+                                            let mut q_writer = q.write().unwrap();
+                                            for entry in q_writer.iter_mut() {
+                                                if entry.duration() == 0
+                                                    && entry.id() == Some(video_id.clone())
+                                                {
+                                                    entry.set_duration(yt_duration);
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     match player.load_url(&stream_info.url, was_playing) {
                                         Ok(()) => {
                                             dlog("Track restarted successfully");

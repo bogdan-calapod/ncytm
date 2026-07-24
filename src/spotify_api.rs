@@ -200,23 +200,30 @@ impl WebApi {
                 .tracks
                 .into_iter()
                 .find(|t| t.video_id == id)
-                .map(|t| Track {
-                    id: Some(t.video_id),
-                    title: t.title,
-                    duration: t.duration_seconds.unwrap_or(0),
-                    artists: t.artists.iter().map(|a| a.name.clone()).collect(),
-                    artist_ids: t
-                        .artists
-                        .iter()
-                        .filter_map(|a| a.browse_id.clone())
-                        .collect(),
-                    album: t.album.as_ref().map(|a| a.title.clone()),
-                    album_id: t.album.and_then(|a| a.browse_id),
-                    cover_url: t.thumbnail_url,
-                    added_at: None,
-                    list_index: 0,
-                    is_explicit: t.is_explicit,
-                    set_video_id: None,
+                .map(|t| {
+                    // If search didn't provide duration, fetch it from the player endpoint
+                    let duration = t.duration_seconds.unwrap_or_else(|| {
+                        rt.block_on(async { yt_api::get_video_duration(client, &t.video_id).await })
+                            .unwrap_or(0)
+                    });
+                    Track {
+                        id: Some(t.video_id),
+                        title: t.title,
+                        duration,
+                        artists: t.artists.iter().map(|a| a.name.clone()).collect(),
+                        artist_ids: t
+                            .artists
+                            .iter()
+                            .filter_map(|a| a.browse_id.clone())
+                            .collect(),
+                        album: t.album.as_ref().map(|a| a.title.clone()),
+                        album_id: t.album.and_then(|a| a.browse_id),
+                        cover_url: t.thumbnail_url,
+                        added_at: None,
+                        list_index: 0,
+                        is_explicit: t.is_explicit,
+                        set_video_id: None,
+                    }
                 }),
             Err(_) => None,
         }

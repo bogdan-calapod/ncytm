@@ -139,6 +139,7 @@ impl CommandManager {
                     s.queuestate.track_progress = self.spotify.get_current_progress();
                 });
                 self.config.save_state();
+                self.spotify.shutdown();
                 s.quit();
                 Ok(None)
             }
