@@ -14,6 +14,7 @@ use crate::events::EventManager;
 use crate::model::playable::Playable;
 use crate::player::Player;
 use crate::spotify_api::WebApi;
+use crate::youtube_music::stream::StreamInfo;
 use crate::youtube_music::{
     AudioQuality, Cookies, YouTubeMusicClient, api::player::get_video_duration, get_stream_url,
 };
@@ -104,6 +105,9 @@ enum PlayerCommand {
     /// player API (lightweight, no yt-dlp). The player thread spawns
     /// non-blocking tasks and updates the queue as results arrive.
     ResolveDurations,
+    /// Pre-download stream URLs for the given video IDs in the background.
+    /// Skips videos that already have a temp file on disk.
+    PreloadStreamUrls(Vec<String>),
 }
 
 /// Playback controller.
@@ -403,6 +407,18 @@ impl Spotify {
         }
     }
 
+    /// Pre-download audio for adjacent tracks in the background.
+    /// Skips videos that already have a temp file on disk.
+    pub fn preload_stream_urls(&self, video_ids: Vec<String>) {
+        if let Some(ref tx) = *self.command_tx.read().unwrap() {
+            if let Err(e) = tx.send(PlayerCommand::PreloadStreamUrls(video_ids)) {
+                dlog(&format!("Failed to send PreloadStreamUrls: {:?}", e));
+            }
+        } else {
+            dlog("Player thread not running — skipping PreloadStreamUrls");
+        }
+    }
+
     pub fn shutdown(&self) {
         dlog("Shutting down player");
         if let Some(ref tx) = *self.command_tx.read().unwrap() {
@@ -475,19 +491,36 @@ fn run_player_thread(
                         video_id,
                         start_playing,
                     } => {
-                        dlog(&format!("Fetching stream URL for: {}", video_id));
+                        dlog(&format!("Loading track: {}", video_id));
 
-                        let stream_result = rt.block_on(async {
-                            get_stream_url(&client, &video_id, AudioQuality::High).await
-                        });
+                        let temp_path = format!("/tmp/ncytm_audio_{}.mp3", video_id);
+                        let cache_hit = std::path::Path::new(&temp_path).exists();
+
+                        let stream_result = if cache_hit {
+                            dlog(&format!("Cache hit: {}", temp_path));
+                            let content_length =
+                                std::fs::metadata(&temp_path).ok().map(|m| m.len());
+                            Ok(StreamInfo {
+                                url: format!("file://{}", temp_path),
+                                mime_type: "audio/mpeg".to_string(),
+                                codec: "mp3".to_string(),
+                                bitrate: 128000,
+                                sample_rate: Some(44100),
+                                channels: Some(2),
+                                content_length,
+                                duration_seconds: None,
+                                expires_at: None,
+                            })
+                        } else {
+                            dlog(&format!("Cache miss, fetching via yt-dlp: {}", video_id));
+                            rt.block_on(async {
+                                get_stream_url(&client, &video_id, AudioQuality::High).await
+                            })
+                        };
 
                         match stream_result {
                             Ok(stream_info) => {
                                 dlog(&format!("Got stream URL, mime: {}", stream_info.mime_type));
-                                dlog(&format!(
-                                    "URL: {}...",
-                                    &stream_info.url[..stream_info.url.len().min(100)]
-                                ));
 
                                 // If yt-dlp returned a duration and the track has 0:00,
                                 // update the track model so the UI shows the correct duration.
@@ -506,8 +539,6 @@ fn run_player_thread(
                                     }
                                     drop(track_mut);
 
-                                    // Also update matching entries in the queue so the
-                                    // queue list shows the correct duration.
                                     if let Some(ref q) = *queue_data.read().unwrap() {
                                         let mut q_writer = q.write().unwrap();
                                         for entry in q_writer.iter_mut() {
@@ -538,7 +569,32 @@ fn run_player_thread(
                                         dlog("Events triggered");
                                     }
                                     Err(e) => {
-                                        dlog(&format!("Failed to load into player: {:?}", e));
+                                        dlog(&format!(
+                                            "Failed to load into player (cache_hit={}): {:?}",
+                                            cache_hit, e
+                                        ));
+                                        // Fallback: if a cached file failed to load,
+                                        // re-download via yt-dlp
+                                        if cache_hit {
+                                            dlog("Falling back to yt-dlp re-download");
+                                            if let Ok(fresh) = rt.block_on(async {
+                                                get_stream_url(
+                                                    &client,
+                                                    &video_id,
+                                                    AudioQuality::High,
+                                                )
+                                                .await
+                                            }) {
+                                                let _ = player.load_url(&fresh.url, start_playing);
+                                                if start_playing {
+                                                    *status.write().unwrap() =
+                                                        PlayerEvent::Playing(SystemTime::now());
+                                                    *since.write().unwrap() =
+                                                        Some(SystemTime::now());
+                                                }
+                                                events.trigger();
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -629,7 +685,6 @@ fn run_player_thread(
                     }
                     PlayerCommand::Restart => {
                         dlog("Restarting current track");
-                        // Get the current track info from current_track
                         if let Some(track) = current_track.read().unwrap().clone() {
                             let video_id = track.id().unwrap_or_default();
                             let was_playing =
@@ -640,16 +695,33 @@ fn run_player_thread(
                                 video_id, was_playing
                             ));
 
-                            // Fetch and reload the track
-                            let stream_result = rt.block_on(async {
-                                get_stream_url(&client, &video_id, AudioQuality::High).await
-                            });
+                            let temp_path = format!("/tmp/ncytm_audio_{}.mp3", video_id);
+                            let cache_hit = std::path::Path::new(&temp_path).exists();
+
+                            let stream_result = if cache_hit {
+                                dlog(&format!("Restart cache hit: {}", temp_path));
+                                Ok(StreamInfo {
+                                    url: format!("file://{}", temp_path),
+                                    mime_type: "audio/mpeg".to_string(),
+                                    codec: "mp3".to_string(),
+                                    bitrate: 128000,
+                                    sample_rate: Some(44100),
+                                    channels: Some(2),
+                                    content_length: std::fs::metadata(&temp_path)
+                                        .ok()
+                                        .map(|m| m.len()),
+                                    duration_seconds: None,
+                                    expires_at: None,
+                                })
+                            } else {
+                                dlog("Restart cache miss, fetching via yt-dlp");
+                                rt.block_on(async {
+                                    get_stream_url(&client, &video_id, AudioQuality::High).await
+                                })
+                            };
 
                             match stream_result {
                                 Ok(stream_info) => {
-                                    dlog("Got stream URL for restart");
-
-                                    // Update duration from yt-dlp if needed
                                     if let Some(yt_duration) = stream_info.duration_seconds
                                         && yt_duration > 0
                                     {
@@ -688,7 +760,31 @@ fn run_player_thread(
                                             events.trigger();
                                         }
                                         Err(e) => {
-                                            dlog(&format!("Failed to restart track: {:?}", e));
+                                            dlog(&format!(
+                                                "Failed to restart (cache_hit={}): {:?}",
+                                                cache_hit, e
+                                            ));
+                                            if cache_hit {
+                                                dlog("Restart fallback: re-downloading via yt-dlp");
+                                                if let Ok(fresh) = rt.block_on(async {
+                                                    get_stream_url(
+                                                        &client,
+                                                        &video_id,
+                                                        AudioQuality::High,
+                                                    )
+                                                    .await
+                                                }) {
+                                                    let _ =
+                                                        player.load_url(&fresh.url, was_playing);
+                                                    if was_playing {
+                                                        *status.write().unwrap() =
+                                                            PlayerEvent::Playing(SystemTime::now());
+                                                        *since.write().unwrap() =
+                                                            Some(SystemTime::now());
+                                                    }
+                                                    events.trigger();
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -698,6 +794,23 @@ fn run_player_thread(
                             }
                         } else {
                             dlog("Cannot restart: no current track");
+                        }
+                    }
+                    PlayerCommand::PreloadStreamUrls(video_ids) => {
+                        dlog(&format!("Preloading {} stream URL(s)", video_ids.len()));
+                        for video_id in video_ids {
+                            let temp_path = format!("/tmp/ncytm_audio_{}.mp3", video_id);
+                            if std::path::Path::new(&temp_path).exists() {
+                                continue;
+                            }
+                            let client = client.clone();
+                            rt.spawn(async move {
+                                if let Err(e) =
+                                    get_stream_url(&client, &video_id, AudioQuality::High).await
+                                {
+                                    dlog(&format!("Preload failed for {}: {:?}", video_id, e));
+                                }
+                            });
                         }
                     }
                     PlayerCommand::Shutdown => {

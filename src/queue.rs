@@ -326,6 +326,27 @@ impl Queue {
             self.spotify.notify_seeked(0);
         }
 
+        // Preload audio for adjacent tracks in the background so they play
+        // instantly when the user skips next/previous.
+        {
+            let q = self.queue.read().unwrap();
+            let mut ids = Vec::with_capacity(2);
+            if let Some(prev) = self.previous_index().and_then(|i| q.get(i))
+                && let Some(id) = prev.id()
+            {
+                ids.push(id.to_string());
+            }
+            if let Some(next) = self.next_index().and_then(|i| q.get(i))
+                && let Some(id) = next.id()
+            {
+                ids.push(id.to_string());
+            }
+            drop(q);
+            if !ids.is_empty() {
+                self.spotify.preload_stream_urls(ids);
+            }
+        }
+
         if reshuffle && self.get_shuffle() {
             self.generate_random_order()
         }
