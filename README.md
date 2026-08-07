@@ -7,9 +7,9 @@
 </div>
 
 > [!WARNING]
-> 
+>
 > This is a fork of [ncspot](https://github.com/hrkfdn/ncspot), an `ncurses` Spotify client.
-> 
+>
 > **AI-Assisted Development**: This project is being developed with heavy AI involvement. Code quality and functionality may vary. Use at your own risk.
 >
 > **macOS support mainly**: I'm forking this for my own personal use, based mostly on macOS. While best effort is intended, no guarantee of upstream fixes or other OS support is provided.
@@ -37,7 +37,8 @@ ncytm aims to provide a simple and resource-friendly terminal interface for YouT
 
 ```bash
 brew tap bogdan-calapod/tap
-brew install ncytm
+brew trust --formula bogdan-calapod/tap/ncytm
+brew install yt-dlp ffmpeg ncytm
 ```
 
 ### From Source
@@ -65,11 +66,13 @@ ncytm auth --browser
 This will open your default browser (Edge) where you can log in to YouTube Music. Once authenticated, cookies are automatically extracted and saved.
 
 **Options:**
+
 - `--browser-type <TYPE>` - Use a different browser: `chrome`, `edge`, or `chromium` (default: `edge`)
 - `--no-system-profile` - Use a separate ncytm browser profile instead of your system profile
 - `--timeout <SECONDS>` - Timeout for authentication (default: 600 seconds)
 
 **Examples:**
+
 ```bash
 # Use Chrome instead of Edge
 ncytm auth --browser --browser-type chrome
@@ -88,6 +91,7 @@ Alternatively, you can manually export cookies from your browser:
 4. Save the file to `~/.config/ncytm/cookies.txt`
 
 The following cookies are required:
+
 - `SAPISID` or `__Secure-3PAPISID`
 - `HSID`
 - `SSID`
@@ -98,12 +102,15 @@ The following cookies are required:
 ## Configuration
 
 Configuration files are stored in `~/.config/ncytm/`:
+
 - `cookies.txt` - Your YouTube Music cookies (required)
 - `config.toml` - Application configuration (optional)
 
 ## Requirements
 
 - **yt-dlp**: Required for audio playback. Install via `brew install yt-dlp` or `pip install yt-dlp`
+- *ffmpeg*: Required for converting the downloaded audio in a default format. Install via `brew
+install ffmpeg`
 
 ## Credits
 
