@@ -49,4 +49,16 @@ impl EventManager {
     pub fn trigger(&self) {
         self.cursive_sink.send(Box::new(Cursive::noop)).unwrap();
     }
+
+    /// Run an arbitrary closure on the Cursive (UI) thread.
+    ///
+    /// This is the idiomatic way to update the UI (e.g. pop up a dialog) from a
+    /// background thread. Unlike [`trigger`], the send is non-panicking: if the
+    /// Cursive event loop has already shut down, the closure is silently dropped.
+    pub fn run_on_ui<F>(&self, cb: F)
+    where
+        F: FnOnce(&mut Cursive) + Send + 'static,
+    {
+        let _ = self.cursive_sink.send(Box::new(cb));
+    }
 }

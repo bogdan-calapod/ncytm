@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use log::info;
+use log::{debug, info};
 
 use crate::model::album::Album;
 use crate::model::artist::Artist;
@@ -477,13 +477,24 @@ impl WebApi {
             .map_err(|e| e.to_string())
     }
 
-    pub fn overwrite_playlist(&self, id: &str, tracks: &[Playable]) {
-        let Some(client) = self.get_client() else {
-            return;
-        };
-        let Ok(rt) = tokio::runtime::Runtime::new() else {
-            return;
-        };
+    pub fn overwrite_playlist(&self, id: &str, tracks: &[Playable]) -> Result<(), String> {
+        let client = self.get_client().ok_or("No client available")?;
+        let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+
+        // Playlist edit endpoints expect the bare playlist ID, not the "VL"-prefixed
+        // browse ID. Normalize defensively.
+        let id = id.strip_prefix("VL").unwrap_or(id);
+
+        // Collect the video IDs to add up front so we can fail fast if there is nothing
+        // valid to add, rather than silently creating/leaving an empty playlist.
+        let owned_ids: Vec<String> = tracks
+            .iter()
+            .filter_map(|t| t.id())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if owned_ids.is_empty() {
+            return Err("no valid track IDs to add to the playlist".to_string());
+        }
 
         // 1. Delete all existing tracks by first fetching them to get set_video_ids
         let existing = rt.block_on(async { yt_api::get_playlist_tracks(client, id, None).await });
@@ -495,18 +506,20 @@ impl WebApi {
                 .collect();
             let vids: Vec<&str> = page.tracks.iter().map(|t| t.video_id.as_str()).collect();
             if !svids.is_empty() {
-                let _ = rt.block_on(async {
+                rt.block_on(async {
                     yt_api::remove_playlist_tracks(client, id, &svids, &vids).await
-                });
+                })
+                .map_err(|e| format!("failed to clear existing tracks: {e}"))?;
             }
         }
 
         // 2. Add new tracks
-        let owned_ids: Vec<String> = tracks.iter().filter_map(|t| t.id()).collect();
         let id_refs: Vec<&str> = owned_ids.iter().map(|s| s.as_str()).collect();
-        if !id_refs.is_empty() {
-            let _ = rt.block_on(async { yt_api::add_playlist_tracks(client, id, &id_refs).await });
-        }
+        debug!("adding {} tracks to playlist {}", id_refs.len(), id);
+        rt.block_on(async { yt_api::add_playlist_tracks(client, id, &id_refs).await })
+            .map_err(|e| format!("failed to add tracks: {e}"))?;
+
+        Ok(())
     }
 
     pub fn user_playlist_follow_playlist(&self, id: &str) -> Result<(), String> {

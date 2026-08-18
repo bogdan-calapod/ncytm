@@ -2,6 +2,7 @@
 //!
 //! Extracts playable audio stream URLs from YouTube video IDs.
 
+use std::process::{Command, Output};
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
@@ -9,6 +10,61 @@ use serde_json::{Value, json};
 use thiserror::Error;
 
 use super::client::YouTubeMusicClient;
+
+/// Maximum time to wait for the yt-dlp audio download before giving up.
+const YT_DLP_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Maximum time to wait for the (lightweight) yt-dlp duration probe.
+const YT_DLP_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Run a command, waiting at most `timeout` for it to finish.
+///
+/// `std::process::Command::output()` blocks forever if the child never exits
+/// (network stall, throttling, interactive prompt, extractor bug). This spawns
+/// the child, polls for completion, and kills it if it exceeds `timeout`.
+///
+/// Returns `Ok(None)` if the process was killed due to the timeout.
+fn run_with_timeout(mut command: Command, timeout: Duration) -> std::io::Result<Option<Output>> {
+    use std::io::Read;
+
+    // Capture stdout/stderr so we can return an Output on completion.
+    command.stdout(std::process::Stdio::piped());
+    command.stderr(std::process::Stdio::piped());
+
+    let mut child = command.spawn()?;
+
+    let start = std::time::Instant::now();
+    let poll_interval = Duration::from_millis(100);
+
+    loop {
+        match child.try_wait()? {
+            Some(status) => {
+                let mut stdout = Vec::new();
+                let mut stderr = Vec::new();
+                if let Some(mut out) = child.stdout.take() {
+                    let _ = out.read_to_end(&mut stdout);
+                }
+                if let Some(mut err) = child.stderr.take() {
+                    let _ = err.read_to_end(&mut stderr);
+                }
+                return Ok(Some(Output {
+                    status,
+                    stdout,
+                    stderr,
+                }));
+            }
+            None => {
+                if start.elapsed() >= timeout {
+                    // Best-effort kill; ignore errors (process may have just exited).
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Ok(None);
+                }
+                std::thread::sleep(poll_interval);
+            }
+        }
+    }
+}
 
 /// Errors that can occur during stream extraction.
 #[derive(Debug, Error)]
@@ -111,6 +167,22 @@ pub async fn get_audio_streams(
 ) -> Result<Vec<StreamInfo>, StreamError> {
     dlog(&format!("Downloading audio for {} with yt-dlp", video_id));
 
+    // YouTube now rejects unauthenticated audio downloads with HTTP 403. yt-dlp runs
+    // as a separate process and does not share the API client's cookies, so we must
+    // pass the same cookie file explicitly.
+    let cookies_path = crate::config::config_path("cookies.txt");
+    if !cookies_path.exists() {
+        dlog(&format!(
+            "No cookies file at {}; cannot download audio",
+            cookies_path.display()
+        ));
+        return Err(StreamError::ApiError {
+            message: "not signed in (no cookies.txt found) — run authentication to enable playback"
+                .to_string(),
+        });
+    }
+    let cookies_arg = cookies_path.to_string_lossy().to_string();
+
     // Download directly to a temp file
     // Use mp3 format for best compatibility with rodio/symphonia
     let temp_path = format!("/tmp/ncytm_audio_{}.mp3", video_id);
@@ -119,16 +191,18 @@ pub async fn get_audio_streams(
     let _ = std::fs::remove_file(&temp_path);
 
     // First, get the duration before downloading
-    let duration_output = std::process::Command::new("yt-dlp")
-        .args([
-            "--print",
-            "%(duration)s",
-            "--no-warnings",
-            &format!("https://music.youtube.com/watch?v={}", video_id),
-        ])
-        .output();
+    let mut duration_cmd = Command::new("yt-dlp");
+    duration_cmd.args([
+        "--cookies",
+        &cookies_arg,
+        "--print",
+        "%(duration)s",
+        "--no-warnings",
+        &format!("https://music.youtube.com/watch?v={}", video_id),
+    ]);
+    let duration_output = run_with_timeout(duration_cmd, YT_DLP_PROBE_TIMEOUT);
 
-    let duration_seconds = duration_output.ok().and_then(|out| {
+    let duration_seconds = duration_output.ok().flatten().and_then(|out| {
         if out.status.success() {
             let duration_str = String::from_utf8_lossy(&out.stdout);
             duration_str.trim().parse::<u32>().ok()
@@ -139,23 +213,26 @@ pub async fn get_audio_streams(
 
     dlog(&format!("Extracted duration: {:?}", duration_seconds));
 
-    let output = std::process::Command::new("yt-dlp")
-        .args([
-            "-f",
-            "bestaudio",
-            "-x", // Extract audio
-            "--audio-format",
-            "mp3",
-            "-o",
-            &temp_path,
-            "--no-warnings",
-            "--no-progress",
-            &format!("https://music.youtube.com/watch?v={}", video_id),
-        ])
-        .output();
+    let mut download_cmd = Command::new("yt-dlp");
+    download_cmd.args([
+        "--cookies",
+        &cookies_arg,
+        "-f",
+        "bestaudio",
+        "-x", // Extract audio
+        "--audio-format",
+        "mp3",
+        "-o",
+        &temp_path,
+        "--no-warnings",
+        "--no-progress",
+        &format!("https://music.youtube.com/watch?v={}", video_id),
+    ]);
+    let output = run_with_timeout(download_cmd, YT_DLP_DOWNLOAD_TIMEOUT);
 
     match output {
-        Ok(out) => {
+        // Process finished (successfully or not) within the timeout.
+        Ok(Some(out)) => {
             if out.status.success() {
                 // Check if file exists and has content
                 if let Ok(metadata) = std::fs::metadata(&temp_path)
@@ -187,6 +264,21 @@ pub async fn get_audio_streams(
             ));
             Err(StreamError::ApiError {
                 message: format!("yt-dlp failed: {}", stderr),
+            })
+        }
+        // Timed out: the child was killed after exceeding the timeout.
+        Ok(None) => {
+            dlog(&format!(
+                "yt-dlp timed out after {}s for {}",
+                YT_DLP_DOWNLOAD_TIMEOUT.as_secs(),
+                video_id
+            ));
+            let _ = std::fs::remove_file(&temp_path);
+            Err(StreamError::ApiError {
+                message: format!(
+                    "yt-dlp timed out after {}s",
+                    YT_DLP_DOWNLOAD_TIMEOUT.as_secs()
+                ),
             })
         }
         Err(e) => {

@@ -43,15 +43,21 @@ impl QueueView {
         let tracks = queue.queue.read().unwrap().clone();
         match id {
             Some(id) => {
-                library.overwrite_playlist(&id, &tracks);
+                let result = library.overwrite_playlist(&id, &tracks);
                 s.pop_layer();
+                if let Err(e) = result {
+                    Self::show_save_error(s, &e);
+                }
             }
             None => {
                 s.pop_layer();
                 let edit = EditView::new()
                     .on_submit(move |s: &mut Cursive, name| {
-                        library.save_playlist(name, &tracks);
+                        let result = library.save_playlist(name, &tracks);
                         s.pop_layer();
+                        if let Err(e) = result {
+                            Self::show_save_error(s, &e);
+                        }
                     })
                     .with_name("name")
                     .fixed_width(20);
@@ -63,6 +69,13 @@ impl QueueView {
                 s.add_layer(Modal::new(dialog));
             }
         }
+    }
+
+    fn show_save_error(s: &mut Cursive, message: &str) {
+        let dialog = Dialog::text(format!("Could not save playlist: {message}"))
+            .title("Save failed")
+            .dismiss_button("Close");
+        s.add_layer(Modal::new(dialog));
     }
 
     fn save_dialog(queue: Arc<Queue>, library: Arc<Library>) -> Modal<Dialog> {

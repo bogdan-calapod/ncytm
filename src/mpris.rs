@@ -82,7 +82,7 @@ impl MprisPlayer {
             // Loading is reported as Playing since we're about to play
             PlayerEvent::Loading | PlayerEvent::Playing(_) => "Playing",
             PlayerEvent::Paused(_) => "Paused",
-            PlayerEvent::Stopped => "Stopped",
+            PlayerEvent::Stopped | PlayerEvent::FailedToPlay(_) => "Stopped",
         }
     }
 

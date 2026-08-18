@@ -198,24 +198,27 @@ impl Library {
 
     /// Set the playlist with `id` to contain only `tracks`. If the playlist already contains
     /// tracks, they will be removed. Update the cache to match the new state.
-    pub fn overwrite_playlist(&self, id: &str, tracks: &[Playable]) {
+    pub fn overwrite_playlist(&self, id: &str, tracks: &[Playable]) -> Result<(), String> {
         debug!("saving {} tracks to list {}", tracks.len(), id);
-        self.spotify.api.overwrite_playlist(id, tracks);
+        self.spotify.api.overwrite_playlist(id, tracks)?;
 
         self.fetch_playlists();
         self.save_cache(
             &config::cache_path(CACHE_PLAYLISTS),
             &self.playlists.read().unwrap(),
         );
+        Ok(())
     }
 
     /// Create a playlist with the given `name` and add `tracks` to it.
-    pub fn save_playlist(&self, name: &str, tracks: &[Playable]) {
+    pub fn save_playlist(&self, name: &str, tracks: &[Playable]) -> Result<(), String> {
         debug!("saving {} tracks to new list {}", tracks.len(), name);
-        match self.spotify.api.create_playlist(name, None, None) {
-            Ok(id) => self.overwrite_playlist(&id, tracks),
-            Err(_) => error!("could not create new playlist.."),
-        }
+        let id = self
+            .spotify
+            .api
+            .create_playlist(name, None, None)
+            .map_err(|e| format!("could not create new playlist: {e}"))?;
+        self.overwrite_playlist(&id, tracks)
     }
 
     /// Update the local library and its cache on disk.

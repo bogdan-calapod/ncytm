@@ -182,12 +182,20 @@ impl Player {
         // Create a temp file path
         let temp_path = format!("/tmp/ncytm_audio_{}.webm", std::process::id());
 
-        // Use curl for downloading (more reliable with these URLs)
+        // Use curl for downloading (more reliable with these URLs).
+        // --max-time bounds the whole transfer so a stalled download can't hang
+        // the player thread forever.
         let status = std::process::Command::new("curl")
             .args([
                 "-s", // Silent
                 "-L", // Follow redirects
-                "-o", &temp_path, url,
+                "--connect-timeout",
+                "15",
+                "--max-time",
+                "60",
+                "-o",
+                &temp_path,
+                url,
             ])
             .status()
             .map_err(|e| PlayerError::Decode(format!("curl failed: {}", e)))?;

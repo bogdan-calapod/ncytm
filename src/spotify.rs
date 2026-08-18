@@ -22,6 +22,18 @@ use crate::youtube_music::{
 #[cfg(feature = "mpris")]
 use crate::mpris::MprisManager;
 
+/// Produce a short, user-facing reason string from a stream error.
+fn stream_error_message(err: &crate::youtube_music::stream::StreamError) -> String {
+    use crate::youtube_music::stream::StreamError;
+    match err {
+        StreamError::ApiError { message } => message.clone(),
+        StreamError::NotPlayable { reason } => format!("video not playable: {reason}"),
+        StreamError::VideoNotFound { video_id } => format!("video not found: {video_id}"),
+        StreamError::NoAudioStreams => "no audio streams available".to_string(),
+        other => other.to_string(),
+    }
+}
+
 /// Debug log to file
 fn dlog(msg: &str) {
     if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -79,6 +91,8 @@ pub enum PlayerEvent {
     Playing(SystemTime),
     Paused(Duration),
     Stopped,
+    /// Playback failed (e.g. yt-dlp error). Carries a short reason for display.
+    FailedToPlay(String),
 }
 
 /// Stub credentials type for backward compatibility.
@@ -481,6 +495,24 @@ fn run_player_thread(
     #[allow(clippy::type_complexity)]
     let queue_data = Arc::<RwLock<Option<Arc<RwLock<Vec<Playable>>>>>>::new(RwLock::new(None));
 
+    // Report a playback failure: reset the (otherwise stuck) Loading state, wake the
+    // UI, and surface a short error dialog on the UI thread.
+    let report_failure = |reason: String| {
+        dlog(&format!("playback failed: {reason}"));
+        *status.write().unwrap() = PlayerEvent::FailedToPlay(reason.clone());
+        events.trigger();
+        events.run_on_ui(move |s| {
+            use crate::ui::modal::Modal;
+            use cursive::views::Dialog;
+            let dialog = Dialog::text(format!(
+                "Playback failed: {reason}.\nSee /tmp/ncytm_debug.log for details."
+            ))
+            .title("Playback error")
+            .dismiss_button("Close");
+            s.add_layer(Modal::new(dialog));
+        });
+    };
+
     loop {
         // Use recv_timeout to allow periodic UI refresh during playback
         match command_rx.recv_timeout(ui_refresh_interval) {
@@ -575,9 +607,10 @@ fn run_player_thread(
                                         ));
                                         // Fallback: if a cached file failed to load,
                                         // re-download via yt-dlp
+                                        let mut recovered = false;
                                         if cache_hit {
                                             dlog("Falling back to yt-dlp re-download");
-                                            if let Ok(fresh) = rt.block_on(async {
+                                            match rt.block_on(async {
                                                 get_stream_url(
                                                     &client,
                                                     &video_id,
@@ -585,21 +618,45 @@ fn run_player_thread(
                                                 )
                                                 .await
                                             }) {
-                                                let _ = player.load_url(&fresh.url, start_playing);
-                                                if start_playing {
-                                                    *status.write().unwrap() =
-                                                        PlayerEvent::Playing(SystemTime::now());
-                                                    *since.write().unwrap() =
-                                                        Some(SystemTime::now());
+                                                Ok(fresh) => {
+                                                    match player.load_url(&fresh.url, start_playing)
+                                                    {
+                                                        Ok(()) => {
+                                                            if start_playing {
+                                                                *status.write().unwrap() =
+                                                                    PlayerEvent::Playing(
+                                                                        SystemTime::now(),
+                                                                    );
+                                                                *since.write().unwrap() =
+                                                                    Some(SystemTime::now());
+                                                            }
+                                                            events.trigger();
+                                                            recovered = true;
+                                                        }
+                                                        Err(e2) => {
+                                                            dlog(&format!(
+                                                                "Fallback load_url failed: {:?}",
+                                                                e2
+                                                            ));
+                                                        }
+                                                    }
                                                 }
-                                                events.trigger();
+                                                Err(e2) => {
+                                                    dlog(&format!(
+                                                        "Fallback get_stream_url failed: {:?}",
+                                                        e2
+                                                    ));
+                                                }
                                             }
+                                        }
+                                        if !recovered {
+                                            report_failure(format!("could not decode audio: {e}"));
                                         }
                                     }
                                 }
                             }
                             Err(e) => {
-                                dlog(&format!("Failed to get stream URL: {:?}", e));
+                                report_failure(stream_error_message(&e));
                             }
                         }
                     }
@@ -789,7 +846,7 @@ fn run_player_thread(
                                     }
                                 }
                                 Err(e) => {
-                                    dlog(&format!("Failed to get stream URL for restart: {:?}", e));
+                                    report_failure(stream_error_message(&e));
                                 }
                             }
                         } else {

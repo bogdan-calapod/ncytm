@@ -170,6 +170,26 @@ pub async fn add_playlist_tracks(
 
     let response = client.post("browse/edit_playlist", &body).await?;
 
+    parse_add_playlist_tracks_response(&response)
+}
+
+/// Parse the response of an `ACTION_ADD_VIDEO` edit, validating that the edit
+/// actually succeeded.
+///
+/// YouTube Music returns HTTP 200 even when the edit is not performed (e.g. gated
+/// requests, invalid video IDs). A successful edit reports a "SUCCEEDED" status.
+/// Returns the set_video_ids assigned to the newly added tracks (needed for later removal).
+fn parse_add_playlist_tracks_response(response: &Value) -> Result<Vec<String>, ClientError> {
+    let status = response
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    if !status.contains("SUCCEEDED") {
+        return Err(ClientError::ApiError {
+            message: format!("add_playlist_tracks did not succeed (status: {status:?})"),
+        });
+    }
+
     // Extract set_video_ids from the response (needed to delete the tracks later)
     let set_video_ids = response
         .pointer("/playlistEditResults")
@@ -677,5 +697,37 @@ mod tests {
         assert_eq!(parse_duration("3:45"), Some(225));
         assert_eq!(parse_duration("1:00:00"), Some(3600));
         assert_eq!(parse_duration("bad"), None);
+    }
+
+    #[test]
+    fn test_add_playlist_tracks_response_success() {
+        let response = json!({
+            "status": "STATUS_SUCCEEDED",
+            "playlistEditResults": [
+                {
+                    "playlistEditVideoAddedResultData": { "setVideoId": "svid1" }
+                },
+                {
+                    "playlistEditVideoAddedResultData": { "setVideoId": "svid2" }
+                }
+            ]
+        });
+        let result = parse_add_playlist_tracks_response(&response).unwrap();
+        assert_eq!(result, vec!["svid1".to_string(), "svid2".to_string()]);
+    }
+
+    #[test]
+    fn test_add_playlist_tracks_response_failed_status() {
+        // Gated/rejected write: HTTP 200 but no SUCCEEDED status.
+        let response = json!({
+            "actions": [{ "showEngagementPanelEndpoint": {} }]
+        });
+        assert!(parse_add_playlist_tracks_response(&response).is_err());
+    }
+
+    #[test]
+    fn test_add_playlist_tracks_response_wrong_status() {
+        let response = json!({ "status": "STATUS_FAILED" });
+        assert!(parse_add_playlist_tracks_response(&response).is_err());
     }
 }

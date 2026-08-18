@@ -62,7 +62,7 @@ impl StatusBar {
             PlayerEvent::Loading => indicators.3,
             PlayerEvent::Playing(_) => indicators.0,
             PlayerEvent::Paused(_) => indicators.1,
-            PlayerEvent::Stopped => indicators.2,
+            PlayerEvent::Stopped | PlayerEvent::FailedToPlay(_) => indicators.2,
         }
     }
 
@@ -182,12 +182,11 @@ impl View for StatusBar {
 
         printer.with_color(style, |printer| {
             if let Some(ref t) = self.queue.get_current() {
-                let track_info =
-                    if matches!(self.spotify.get_current_status(), PlayerEvent::Loading) {
-                        format!("Loading {}...", t.title())
-                    } else {
-                        self.format_track(t)
-                    };
+                let track_info = match self.spotify.get_current_status() {
+                    PlayerEvent::Loading => format!("Loading {}...", t.title()),
+                    PlayerEvent::FailedToPlay(_) => format!("Failed to play {}", t.title()),
+                    _ => self.format_track(t),
+                };
 
                 let left_start = 4;
                 let available_width = offset.saturating_sub(left_start + 1);

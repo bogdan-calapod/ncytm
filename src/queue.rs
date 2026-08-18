@@ -359,7 +359,7 @@ impl Queue {
             PlayerEvent::Loading | PlayerEvent::Playing(_) | PlayerEvent::Paused(_) => {
                 self.spotify.toggleplayback();
             }
-            PlayerEvent::Stopped => match self.next_index() {
+            PlayerEvent::Stopped | PlayerEvent::FailedToPlay(_) => match self.next_index() {
                 Some(_) => self.next(false),
                 None => self.play(0, false, false),
             },
