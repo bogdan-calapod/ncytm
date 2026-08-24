@@ -28,7 +28,8 @@ ncytm aims to provide a simple and resource-friendly terminal interface for YouT
 - Small resource footprint
 - Vim keybindings out of the box
 - Cookie-based authentication (copy from browser)
-- macOS media keys and Now Playing integration
+- macOS media keys and Now Playing integration, with automatic reclaim of the Now Playing slot when a new track starts
+- Optional Slack "now playing" status: appends the current track to your Slack status
 - Smart previous track behavior: restarts current track if more than 15% played, otherwise goes to previous track
 
 ## Installation
@@ -105,6 +106,54 @@ Configuration files are stored in `~/.config/ncytm/`:
 
 - `cookies.txt` - Your YouTube Music cookies (required)
 - `config.toml` - Application configuration (optional)
+
+### macOS Now Playing focus
+
+On macOS, the Control Center "Now Playing" widget is owned by whichever app most
+recently started playing. When another app (Spotify, Safari, Music, ...) plays
+after ncytm, it takes over that slot.
+
+ncytm automatically reclaims the Now Playing slot whenever a new track starts
+playing — or when playback resumes from pause — so it stays the active player
+without needing to quit and reopen the app. This happens only on track changes
+and resume (never on a timer), so it won't fight other apps while a track is
+playing. No configuration is required.
+
+### Slack now-playing status
+
+ncytm can append the currently playing track to your Slack status. It preserves
+whatever status you already have and only touches Slack when the track changes,
+stripping its addition again when playback is paused or stopped. For example, a
+status of `Focusing` becomes `Focusing |🎵 Song — Artist` while playing.
+
+Because ncytm only updates on track change, if you change your Slack status
+manually while nothing is playing, ncytm leaves it alone and adopts it as the
+new base the next time a track starts.
+
+**Setup:**
+
+1. Create a Slack app at <https://api.slack.com/apps> and add the
+   `users.profile:read` and `users.profile:write` **User Token Scopes**.
+2. Install the app to your workspace and copy the **User OAuth Token**
+   (`xoxp-...`).
+3. Provide the token either via the `SLACK_TOKEN` environment variable
+   (recommended, keeps it out of your config file) or in `config.toml`.
+4. Verify it with `ncytm slack --check`.
+
+Example `config.toml`:
+
+```toml
+[slack_status]
+enabled = true
+# token = "xoxp-..."   # optional; prefer the SLACK_TOKEN env var
+separator = "|"          # the marker ncytm uses to find/remove its addition
+emoji = "🎵"             # placed inside the appended text, after the separator
+format = "{title} — {artists}"
+```
+
+Your Slack `status_emoji` is never modified — the music emoji lives inside the
+appended text. Slack limits status text to 100 characters; if the combined
+status is too long, only ncytm's addition is truncated, never your base status.
 
 ## Requirements
 

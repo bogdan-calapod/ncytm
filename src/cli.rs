@@ -173,3 +173,81 @@ fn auth_browser(
     eprintln!("{}", authentication::get_cookie_instructions());
     Err("Browser authentication not available".to_string())
 }
+
+/// Handle the `slack` subcommand.
+#[cfg(feature = "slack_status")]
+pub fn slack(check: bool) -> Result<(), String> {
+    if check { slack_check() } else { slack_status() }
+}
+
+/// Resolve the Slack token from config or the `SLACK_TOKEN` environment variable.
+#[cfg(feature = "slack_status")]
+fn slack_token(config: &Config) -> Option<String> {
+    config
+        .values()
+        .slack_status
+        .as_ref()
+        .and_then(|s| s.token.clone())
+        .filter(|t| !t.trim().is_empty())
+        .or_else(|| std::env::var("SLACK_TOKEN").ok())
+        .filter(|t| !t.trim().is_empty())
+}
+
+/// Verify the Slack token and print the current status.
+#[cfg(feature = "slack_status")]
+fn slack_check() -> Result<(), String> {
+    use crate::slack;
+
+    let config = Config::new(None);
+    let token = slack_token(&config).ok_or_else(|| {
+        "No Slack token found. Set `slack_status.token` in your config or the \
+         SLACK_TOKEN environment variable."
+            .to_string()
+    })?;
+
+    match slack::check_token(&token) {
+        Ok(summary) => {
+            println!("Slack token valid!");
+            let emoji = if summary.status_emoji.is_empty() {
+                "(none)".to_string()
+            } else {
+                summary.status_emoji
+            };
+            let text = if summary.status_text.is_empty() {
+                "(empty)".to_string()
+            } else {
+                summary.status_text
+            };
+            println!("  Current status: {emoji} {text}");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Slack token check failed: {e}");
+            Err(e)
+        }
+    }
+}
+
+/// Show the Slack integration configuration status.
+#[cfg(feature = "slack_status")]
+fn slack_status() -> Result<(), String> {
+    let config = Config::new(None);
+    let cfg = config.values().slack_status.clone().unwrap_or_default();
+
+    println!("Slack now-playing integration:");
+    println!();
+    println!("  Enabled: {}", if cfg.enabled { "yes" } else { "no" });
+    println!(
+        "  Token:   {}",
+        if slack_token(&config).is_some() {
+            "configured"
+        } else {
+            "not set"
+        }
+    );
+    println!("  Separator: {}", cfg.separator.as_deref().unwrap_or("|"));
+    println!();
+    println!("Run `ncytm slack --check` to verify the token against Slack.");
+
+    Ok(())
+}

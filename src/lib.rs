@@ -80,4 +80,26 @@ pub fn program_arguments() -> clap::Command {
                         .help("Timeout for browser authentication in seconds"),
                 ),
         ])
+        .subcommands(slack_subcommands())
+}
+
+/// The `slack` subcommand, only available when the `slack_status` feature is
+/// enabled.
+#[cfg(feature = "slack_status")]
+fn slack_subcommands() -> Vec<clap::Command> {
+    vec![
+        clap::Command::new("slack")
+            .about("Manage the Slack now-playing status integration")
+            .arg(
+                clap::Arg::new("check")
+                    .long("check")
+                    .action(clap::ArgAction::SetTrue)
+                    .help("Verify the Slack token and print the current status"),
+            ),
+    ]
+}
+
+#[cfg(not(feature = "slack_status"))]
+fn slack_subcommands() -> Vec<clap::Command> {
+    Vec::new()
 }

@@ -213,6 +213,7 @@ Possible configuration values are:
 | `statusbar_format`              | Formatting for tracks in the statusbar                         | See [track_formatting](#track-formatting)                                             | `%artists - %track` |
 | `[track_format]`                | Set active fields shown in Library/Queue views                 | See [track formatting](#track-formatting)                                             |                     |
 | `[notification_format]`         | Set the text displayed in notifications<sup>[4]</sup>          | See [notification formatting](#notification-formatting)                               |                     |
+| `[slack_status]`<sup>[5]</sup>  | Append the current track to your Slack status                  | See [Slack status](#slack-status)                                                     |                     |
 | `[theme]`                       | Custom theme                                                   | See [custom theme](#theming)                                                          |                     |
 | `[keybindings]`                 | Custom keybindings                                             | See [custom keybindings](#custom-keybindings)                                         |                     |
 
@@ -222,6 +223,33 @@ Possible configuration values are:
    is reversed.
 3. Run `ncytm -h` for a list of devices.
 4. If built with the `notify` feature.
+5. If built with the `slack_status` feature.
+
+### Slack status
+
+When the `slack_status` feature is built in, ncytm can append the currently
+playing track to your Slack status. It preserves your existing status and only
+updates on a track change, removing its addition again when playback is paused
+or stopped.
+
+Create a Slack app with the `users.profile:read` and `users.profile:write` user
+token scopes, install it, and provide the resulting `xoxp-...` **User OAuth
+Token** either via the `SLACK_TOKEN` environment variable (recommended) or in
+`config.toml`. Verify the setup with `ncytm slack --check`.
+
+```toml
+[slack_status]
+enabled = true
+# token = "xoxp-..."   # optional; prefer the SLACK_TOKEN env var
+separator = "|"          # marker ncytm uses to find and remove its addition
+emoji = "🎵"             # embedded in the appended text, after the separator
+format = "{title} — {artists}"
+```
+
+The appended text supports the `{title}` and `{artists}` placeholders. A status
+of `Focusing` becomes `Focusing |🎵 Song — Artist` while playing. Your Slack
+`status_emoji` is left untouched, and Slack's 100-character limit only truncates
+ncytm's addition, never your base status.
 
 ### Custom Keybindings
 Keybindings can be configured in `[keybindings]` section in `config.toml`.

@@ -21,6 +21,19 @@ enum MediaControlCommand {
     },
     /// Update playback state
     SetPlayback(PlaybackState),
+    /// Reclaim the macOS "Now Playing" slot: re-register the remote command
+    /// handlers and force a real `Paused` -> `Playing` state transition with
+    /// fresh metadata, which is what prompts macOS to re-elect ncytm as the
+    /// current Now Playing app. Carries the current track's metadata so the
+    /// whole sequence can run atomically on the main thread.
+    Reclaim {
+        title: Option<String>,
+        artist: Option<String>,
+        album: Option<String>,
+        duration_secs: Option<u64>,
+        cover_url: Option<String>,
+        progress_secs: Option<f64>,
+    },
 }
 
 /// Playback state for media controls
@@ -70,6 +83,31 @@ impl MediaControlHandle {
     pub fn set_playback(&self, state: PlaybackState) {
         let _ = self.tx.send(MediaControlCommand::SetPlayback(state));
     }
+
+    /// Reclaim the macOS "Now Playing" slot for ncytm.
+    ///
+    /// Re-registers the remote command handlers and forces a real
+    /// `Paused` -> `Playing` transition with the given metadata, which prompts
+    /// macOS to re-elect ncytm as the current Now Playing app.
+    #[allow(clippy::too_many_arguments)]
+    pub fn reclaim(
+        &self,
+        title: Option<&str>,
+        artist: Option<&str>,
+        album: Option<&str>,
+        duration_secs: Option<u64>,
+        cover_url: Option<&str>,
+        progress_secs: Option<f64>,
+    ) {
+        let _ = self.tx.send(MediaControlCommand::Reclaim {
+            title: title.map(String::from),
+            artist: artist.map(String::from),
+            album: album.map(String::from),
+            duration_secs,
+            cover_url: cover_url.map(String::from),
+            progress_secs,
+        });
+    }
 }
 
 /// Run the application with the macOS event loop on main thread.
@@ -91,6 +129,36 @@ where
 
     use souvlaki::{MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig};
     use std::time::Duration;
+
+    /// Build the closure that forwards souvlaki media control events to the app.
+    ///
+    /// Shared between the initial `attach` and the `Reclaim` re-`attach`, so both
+    /// register identical command handlers.
+    fn make_event_handler(
+        event_tx: mpsc::Sender<MediaControlEvent>,
+    ) -> impl Fn(souvlaki::MediaControlEvent) + Send + 'static {
+        move |e| {
+            let event = match e {
+                souvlaki::MediaControlEvent::Play => MediaControlEvent::Play,
+                souvlaki::MediaControlEvent::Pause => MediaControlEvent::Pause,
+                souvlaki::MediaControlEvent::Toggle => MediaControlEvent::Toggle,
+                souvlaki::MediaControlEvent::Next => MediaControlEvent::Next,
+                souvlaki::MediaControlEvent::Previous => MediaControlEvent::Previous,
+                souvlaki::MediaControlEvent::Stop => MediaControlEvent::Stop,
+                souvlaki::MediaControlEvent::Seek(souvlaki::SeekDirection::Forward) => {
+                    MediaControlEvent::SeekForward
+                }
+                souvlaki::MediaControlEvent::Seek(souvlaki::SeekDirection::Backward) => {
+                    MediaControlEvent::SeekBackward
+                }
+                souvlaki::MediaControlEvent::SetPosition(souvlaki::MediaPosition(dur)) => {
+                    MediaControlEvent::SetPosition(dur.as_secs_f64())
+                }
+                _ => return,
+            };
+            let _ = event_tx.send(event);
+        }
+    }
 
     // Channel for app -> media controls
     let (cmd_tx, cmd_rx) = mpsc::channel::<MediaControlCommand>();
@@ -135,32 +203,9 @@ where
                         Ok(mut controls) => {
                             debug!("winit: MediaControls created on main thread");
 
-                            let tx = self.event_tx.clone();
-                            if let Err(e) = controls.attach(move |e| {
-                                let event = match e {
-                                    souvlaki::MediaControlEvent::Play => MediaControlEvent::Play,
-                                    souvlaki::MediaControlEvent::Pause => MediaControlEvent::Pause,
-                                    souvlaki::MediaControlEvent::Toggle => {
-                                        MediaControlEvent::Toggle
-                                    }
-                                    souvlaki::MediaControlEvent::Next => MediaControlEvent::Next,
-                                    souvlaki::MediaControlEvent::Previous => {
-                                        MediaControlEvent::Previous
-                                    }
-                                    souvlaki::MediaControlEvent::Stop => MediaControlEvent::Stop,
-                                    souvlaki::MediaControlEvent::Seek(
-                                        souvlaki::SeekDirection::Forward,
-                                    ) => MediaControlEvent::SeekForward,
-                                    souvlaki::MediaControlEvent::Seek(
-                                        souvlaki::SeekDirection::Backward,
-                                    ) => MediaControlEvent::SeekBackward,
-                                    souvlaki::MediaControlEvent::SetPosition(
-                                        souvlaki::MediaPosition(dur),
-                                    ) => MediaControlEvent::SetPosition(dur.as_secs_f64()),
-                                    _ => return,
-                                };
-                                let _ = tx.send(event);
-                            }) {
+                            if let Err(e) =
+                                controls.attach(make_event_handler(self.event_tx.clone()))
+                            {
                                 warn!("winit: Failed to attach event handler: {:?}", e);
                             } else {
                                 debug!("winit: Event handler attached");
@@ -195,6 +240,7 @@ where
             loop {
                 match self.cmd_rx.try_recv() {
                     Ok(cmd) => {
+                        let event_tx = self.event_tx.clone();
                         if let Some(ref mut controls) = self.controls {
                             match cmd {
                                 MediaControlCommand::SetMetadata {
@@ -219,6 +265,50 @@ where
                                             .map(|s| MediaPosition(Duration::from_secs_f64(s))),
                                     };
                                     let _ = controls.set_playback(playback);
+                                }
+                                MediaControlCommand::Reclaim {
+                                    title,
+                                    artist,
+                                    album,
+                                    duration_secs,
+                                    cover_url,
+                                    progress_secs,
+                                } => {
+                                    // Re-register the remote command handlers so
+                                    // macOS re-elects ncytm as the Now Playing
+                                    // app. detach() first to avoid stacking
+                                    // duplicate handlers across many tracks.
+                                    let _ = controls.detach();
+                                    if let Err(e) = controls.attach(make_event_handler(event_tx)) {
+                                        warn!("winit: failed to re-attach handlers: {:?}", e);
+                                    }
+
+                                    // Set metadata fresh.
+                                    let _ = controls.set_metadata(MediaMetadata {
+                                        title: title.as_deref(),
+                                        artist: artist.as_deref(),
+                                        album: album.as_deref(),
+                                        duration: duration_secs.map(Duration::from_secs),
+                                        cover_url: cover_url.as_deref(),
+                                    });
+
+                                    // Force a real Stopped -> Paused -> Playing
+                                    // transition. macOS only re-elects the Now
+                                    // Playing app on an actual state change;
+                                    // re-setting Playing when already Playing is a
+                                    // no-op. Small sleeps ensure the AppKit run
+                                    // loop registers each distinct transition
+                                    // rather than coalescing them.
+                                    let progress = progress_secs
+                                        .map(|s| MediaPosition(Duration::from_secs_f64(s)));
+                                    let _ = controls.set_playback(MediaPlayback::Stopped);
+                                    std::thread::sleep(Duration::from_millis(20));
+                                    let _ =
+                                        controls.set_playback(MediaPlayback::Paused { progress });
+                                    std::thread::sleep(Duration::from_millis(20));
+                                    let _ =
+                                        controls.set_playback(MediaPlayback::Playing { progress });
+                                    debug!("winit: reclaimed media focus (re-attach + transition)");
                                 }
                             }
                         }

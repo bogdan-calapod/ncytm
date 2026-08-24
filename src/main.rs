@@ -27,6 +27,8 @@ mod player;
 mod queue;
 mod serialization;
 mod sharing;
+#[cfg(feature = "slack_status")]
+mod slack;
 mod spotify;
 mod spotify_api;
 mod theme;
@@ -78,6 +80,11 @@ fn main() -> Result<(), String> {
             let check = subcommand_matches.get_flag("check");
             let timeout = *subcommand_matches.get_one::<u64>("timeout").unwrap_or(&600);
             cli::auth(browser, use_system_profile, browser_type, check, timeout)
+        }
+        #[cfg(feature = "slack_status")]
+        Some(("slack", subcommand_matches)) => {
+            let check = subcommand_matches.get_flag("check");
+            cli::slack(check)
         }
         Some((_, _)) => unreachable!(),
         None => {

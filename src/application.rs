@@ -86,6 +86,23 @@ pub struct Application {
     /// Last known track ID for detecting track changes (used to update media metadata)
     #[cfg(all(target_os = "macos", feature = "media_control"))]
     last_track_id: Option<String>,
+    /// Whether playback was in the `Playing` state on the previous loop
+    /// iteration, used to detect resume-from-pause for media focus reclaim.
+    #[cfg(all(target_os = "macos", feature = "media_control"))]
+    was_playing: bool,
+    /// The track ID for which media focus was last reclaimed, so we reclaim
+    /// once per track once it starts playing rather than on every loop tick.
+    #[cfg(all(target_os = "macos", feature = "media_control"))]
+    reclaimed_track_id: Option<String>,
+    /// Slack now-playing status integration.
+    #[cfg(feature = "slack_status")]
+    slack: Option<crate::slack::SlackStatus>,
+    /// Last track ID pushed to Slack, for detecting track changes.
+    #[cfg(feature = "slack_status")]
+    slack_last_track_id: Option<String>,
+    /// Whether Slack currently shows a track (so we only clear once).
+    #[cfg(feature = "slack_status")]
+    slack_showing: bool,
 }
 
 impl Application {
@@ -313,6 +330,16 @@ impl Application {
             media_events,
             #[cfg(all(target_os = "macos", feature = "media_control"))]
             last_track_id: None,
+            #[cfg(all(target_os = "macos", feature = "media_control"))]
+            was_playing: false,
+            #[cfg(all(target_os = "macos", feature = "media_control"))]
+            reclaimed_track_id: None,
+            #[cfg(feature = "slack_status")]
+            slack: crate::slack::SlackStatus::new(configuration.values().slack_status.as_ref()),
+            #[cfg(feature = "slack_status")]
+            slack_last_track_id: None,
+            #[cfg(feature = "slack_status")]
+            slack_showing: false,
         })
     }
 
@@ -487,6 +514,12 @@ impl Application {
             #[cfg(unix)]
             _ipc: ipc,
             cursive,
+            #[cfg(feature = "slack_status")]
+            slack: crate::slack::SlackStatus::new(configuration.values().slack_status.as_ref()),
+            #[cfg(feature = "slack_status")]
+            slack_last_track_id: None,
+            #[cfg(feature = "slack_status")]
+            slack_showing: false,
         })
     }
 
@@ -515,6 +548,89 @@ impl Application {
             handle.set_playback(MediaPlaybackState::Playing {
                 progress_secs: Some(progress_secs),
             });
+        }
+    }
+
+    /// Reclaim the macOS "Now Playing" slot for ncytm.
+    ///
+    /// When another app plays media after ncytm, macOS hands the Control Center
+    /// "Now Playing" widget to that app. Re-registering our remote command
+    /// handlers and re-asserting the current track prompts macOS to re-elect
+    /// ncytm — the same thing that happens on a fresh launch, without requiring
+    /// a restart. Only meaningful while a track is playing.
+    #[cfg(all(target_os = "macos", feature = "media_control"))]
+    fn reclaim_media_focus(&self) {
+        use crate::model::playable::Playable;
+
+        if let Some(ref handle) = self.media_handle
+            && let Some(Playable::Track(track)) = self.queue.get_current()
+        {
+            // Re-attach the remote command handlers and force a real
+            // Paused -> Playing transition with fresh metadata, which prompts
+            // macOS to re-elect ncytm as the current Now Playing app.
+            info!("Reclaiming macOS Now Playing focus for: {}", track.title);
+            let progress_secs = self.spotify.get_current_progress().as_secs_f64();
+            handle.reclaim(
+                Some(&track.title),
+                track.artists.first().map(|s| s.as_str()),
+                track.album.as_deref(),
+                Some(track.duration as u64),
+                track.cover_url.as_deref(),
+                Some(progress_secs),
+            );
+        }
+    }
+
+    /// Reconcile the Slack status with the current playback state.
+    ///
+    /// Only acts on track changes (while playing) and on pause/stop, matching
+    /// the desired semantics: we never touch Slack on a timer.
+    #[cfg(feature = "slack_status")]
+    fn update_slack_status(&mut self) {
+        use crate::model::playable::Playable;
+        use crate::spotify::PlayerEvent;
+
+        let Some(slack) = self.slack.as_ref() else {
+            return;
+        };
+
+        let status = self.spotify.get_current_status();
+        let current = self.queue.get_current();
+        let current_id = current.as_ref().and_then(|p| p.id());
+
+        match status {
+            PlayerEvent::Playing(_) => {
+                // Update on track change (or when we transition into playing a
+                // track we haven't shown yet).
+                if (current_id != self.slack_last_track_id || !self.slack_showing)
+                    && let Some(Playable::Track(track)) = current
+                {
+                    slack.update(&track);
+                    self.slack_last_track_id = current_id;
+                    self.slack_showing = true;
+                }
+            }
+            PlayerEvent::Paused(_) | PlayerEvent::Stopped | PlayerEvent::FailedToPlay(_) => {
+                // Strip our addition on pause/stop, but only once.
+                if self.slack_showing {
+                    slack.clear();
+                    self.slack_showing = false;
+                    self.slack_last_track_id = None;
+                }
+            }
+            PlayerEvent::Loading => {}
+        }
+    }
+
+    /// Clear ncytm's addition from the Slack status, if shown. Used on shutdown.
+    #[cfg(feature = "slack_status")]
+    fn clear_slack_status(&mut self) {
+        if let Some(slack) = self.slack.as_ref()
+            && self.slack_showing
+        {
+            slack.clear();
+            self.slack_showing = false;
+            self.slack_last_track_id = None;
         }
     }
 
@@ -591,14 +707,40 @@ impl Application {
                 self.queue.next(false);
             }
 
-            // Check if current track changed and update media metadata
+            // Reconcile the Slack now-playing status with playback state.
+            #[cfg(feature = "slack_status")]
+            self.update_slack_status();
+
+            // Check if current track changed and update media metadata, and
+            // reclaim the macOS "Now Playing" slot on track change / resume.
             #[cfg(all(target_os = "macos", feature = "media_control"))]
             {
+                use crate::spotify::PlayerEvent;
+
+                let is_playing =
+                    matches!(self.spotify.get_current_status(), PlayerEvent::Playing(_));
                 let current_track_id = self.queue.get_current().and_then(|p| p.id());
-                if current_track_id != self.last_track_id {
-                    self.last_track_id = current_track_id;
+                let track_changed = current_track_id != self.last_track_id;
+
+                if track_changed {
+                    self.last_track_id = current_track_id.clone();
                     self.update_media_metadata();
+                    // A newly loaded track hasn't been reclaimed yet; it will
+                    // reclaim once it reaches the Playing state below.
+                    self.reclaimed_track_id = None;
                 }
+
+                // Reclaim focus once a track reaches the Playing state. This
+                // covers both a fresh track (which passes through Loading before
+                // Playing) and resuming from pause. We reclaim once per
+                // (track, play transition) to avoid spamming while playing.
+                let resumed = is_playing && !self.was_playing;
+                let not_yet_reclaimed = self.reclaimed_track_id != current_track_id;
+                if is_playing && current_track_id.is_some() && (not_yet_reclaimed || resumed) {
+                    self.reclaim_media_focus();
+                    self.reclaimed_track_id = current_track_id;
+                }
+                self.was_playing = is_playing;
             }
 
             #[cfg(unix)]
@@ -626,6 +768,11 @@ impl Application {
                 }
             }
         }
+
+        // The event loop has exited (quit); restore the user's Slack status.
+        #[cfg(feature = "slack_status")]
+        self.clear_slack_status();
+
         Ok(())
     }
 }

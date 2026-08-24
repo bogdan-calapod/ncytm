@@ -96,7 +96,7 @@ optional = true
 
 [features]
 browser_auth = ["chromiumoxide"] # Browser-based cookie authentication
-default = ["share_clipboard", "media_control", "notify", "crossterm_backend", "browser_auth"]
+default = ["share_clipboard", "media_control", "notify", "crossterm_backend", "browser_auth", "slack_status"]
 media_control = ["souvlaki", "winit"] # Cross-platform media keys support (macOS, Windows, Linux)
 mpris = ["zbus"] # Allow ncytm to be controlled via MPRIS API (Linux only, deprecated in favor of media_control)
 ncurses_backend = ["cursive/ncurses-backend"]
@@ -105,6 +105,7 @@ crossterm_backend = ["cursive/crossterm-backend"]
 pancurses_backend = ["cursive/pancurses-backend", "pancurses/win32"]
 share_clipboard = ["arboard", "arboard/wayland-data-control"] # Share a link to the system clipboard
 share_selection = ["arboard", "arboard/wayland-data-control"] # Use the primary selection for sharing - linux and bsd only
+slack_status = [] # Append the currently playing track to your Slack status
 termion_backend = ["cursive/termion-backend"]
 
 [dev-dependencies.cargo-husky]

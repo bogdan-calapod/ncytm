@@ -71,6 +71,41 @@ impl NotificationFormat {
     }
 }
 
+/// Configuration for the Slack "now playing" status integration.
+///
+/// When enabled, ncytm appends the currently playing track to your Slack status
+/// (preserving whatever status you already had) whenever the track changes, and
+/// strips its addition again when playback is paused or stopped.
+#[cfg(feature = "slack_status")]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SlackStatusConfig {
+    /// Whether the integration is enabled.
+    pub enabled: bool,
+    /// Slack user OAuth token (`xoxp-...`) with `users.profile:read` and
+    /// `users.profile:write` scopes. If omitted, the `SLACK_TOKEN` environment
+    /// variable is used instead.
+    pub token: Option<String>,
+    /// Separator inserted between your base status and ncytm's addition.
+    pub separator: Option<String>,
+    /// Emoji placed inside the appended text, right after the separator.
+    pub emoji: Option<String>,
+    /// Format of the appended text. Supports `{title}` and `{artists}`.
+    pub format: Option<String>,
+}
+
+#[cfg(feature = "slack_status")]
+impl Default for SlackStatusConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            token: None,
+            separator: Some(String::from("|")),
+            emoji: Some(String::from("🎵")),
+            format: Some(String::from("{title} — {artists}")),
+        }
+    }
+}
+
 /// The configuration of ncytm.
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct ConfigValues {
@@ -102,6 +137,9 @@ pub struct ConfigValues {
     /// Path to cookies.txt file for YouTube Music authentication.
     /// Can be absolute or relative to config directory.
     pub cookies_file: Option<String>,
+    /// Configuration for the Slack "now playing" status integration.
+    #[cfg(feature = "slack_status")]
+    pub slack_status: Option<SlackStatusConfig>,
 }
 
 /// The ncytm theme.
