@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Radio/similar tracks feature using YouTube Music's automix functionality
   - Get similar tracks for any song, album, or playlist
   - Uses YouTube Music's "next" API endpoint for generating radio playlists
+- Draw cover art directly in supported terminals using terminal image protocols
+  (Kitty, iTerm2, Sixel), falling back to block rendering when unsupported.
+  Focus the cover view with <kbd>F8</kbd> (`:focus cover`). Inside tmux, cover
+  art is hidden while ncytm's pane or session is not on screen, and redrawn
+  cleanly when it becomes visible again
+- Optional floating album-art thumbnail near the statusbar, enabled with the
+  `status_cover` config key (size configurable via `status_cover_size`).
+  Requires a graphics-capable terminal (Kitty or iTerm2)
 
 ### Changed
 

@@ -5,6 +5,8 @@ pub mod album;
 pub mod artist;
 pub mod browse;
 pub mod contextmenu;
+#[cfg(feature = "cover")]
+pub mod cover;
 pub mod help;
 pub mod layout;
 pub mod library;

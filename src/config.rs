@@ -134,6 +134,15 @@ pub struct ConfigValues {
     pub library_tabs: Option<Vec<LibraryTab>>,
     pub hide_display_names: Option<bool>,
     pub ap_port: Option<u16>,
+    /// Maximum scaling ratio for cover art beyond its native resolution.
+    /// When unset, cover art scales to fit the available terminal view.
+    pub cover_max_scale: Option<f32>,
+    /// Show a small floating album-art thumbnail in the bottom-right corner,
+    /// just above the statusbar. Requires a graphics-capable terminal
+    /// (Kitty or iTerm2). Defaults to off.
+    pub status_cover: Option<bool>,
+    /// Height (in terminal rows) of the floating status thumbnail. Defaults to 6.
+    pub status_cover_size: Option<usize>,
     /// Path to cookies.txt file for YouTube Music authentication.
     /// Can be absolute or relative to config directory.
     pub cookies_file: Option<String>,

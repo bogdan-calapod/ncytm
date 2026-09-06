@@ -360,18 +360,32 @@ body = "%artists"
 ```
 
 ### Cover Drawing
-When compiled with the `cover` feature, `ncytm` can draw the album art of the
-current track in a dedicated view (`:focus cover` or <kbd>F8</kbd> by default)
-using Überzug. The original project has been abandoned, therefore using a
-compatible implementation such as [Überzug++](https://github.com/jstkdng/ueberzugpp)
-is recommended. For more information on installation and terminal
-compatibility, consult that repository.
+When compiled with the `cover` feature (enabled by default), `ncytm` can draw
+the album art of the current track in a dedicated view (`:focus cover` or
+<kbd>F8</kbd> by default) using terminal image protocols supported by your
+terminal, such as Kitty, iTerm2, or Sixel. If no supported graphics protocol is
+detected, `ncytm` falls back to colored terminal blocks.
 
-To allow scaling up the album art beyond its native resolution, use the config
-key `cover_max_scale`. This is especially useful for HiDPI displays:
+By default, cover art scales to fit the available terminal view. To limit
+scaling beyond the image's native resolution, use the config key
+`cover_max_scale`. This is especially useful for HiDPI displays:
 
 ```toml
 cover_max_scale = 2
+```
+
+#### Status Thumbnail
+You can also show a small floating album-art thumbnail in the bottom-right
+corner, just above the statusbar. This requires a graphics-capable terminal
+that supports overlay image protocols (Kitty or iTerm2); it is disabled in
+other terminals. Note the thumbnail floats above the content view and may cover
+a small corner of the list while a track is playing.
+
+```toml
+# Enable the floating thumbnail (default: false)
+status_cover = true
+# Height of the thumbnail in terminal rows (default: 6)
+status_cover_size = 6
 ```
 
 ## Authentication

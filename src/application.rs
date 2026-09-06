@@ -103,6 +103,13 @@ pub struct Application {
     /// Whether Slack currently shows a track (so we only clear once).
     #[cfg(feature = "slack_status")]
     slack_showing: bool,
+    /// Optional floating album-art thumbnail rendered near the statusbar.
+    #[cfg(feature = "cover")]
+    status_cover: Option<ui::cover::StatusCover>,
+    /// Throttle + cache for the (relatively expensive) tmux pane-visibility
+    /// check, so we don't spawn a `tmux` subprocess on every loop iteration.
+    #[cfg(feature = "cover")]
+    pane_visible_cache: std::cell::Cell<(std::time::Instant, bool)>,
 }
 
 impl Application {
@@ -277,6 +284,9 @@ impl Application {
 
         let queueview = ui::queue::QueueView::new(queue.clone(), library.clone());
 
+        #[cfg(feature = "cover")]
+        let coverview = ui::cover::CoverView::new(queue.clone(), library.clone(), &configuration);
+
         let status = ui::statusbar::StatusBar::new(queue.clone(), Arc::clone(&library));
 
         let mut layout =
@@ -284,6 +294,20 @@ impl Application {
                 .screen("search", search.with_name("search"))
                 .screen("library", libraryview.with_name("library"))
                 .screen("queue", queueview);
+
+        #[cfg(feature = "cover")]
+        layout.add_screen("cover", coverview.with_name("cover"));
+
+        // Optional floating thumbnail near the statusbar, only when enabled and
+        // the terminal supports an overlay image protocol.
+        #[cfg(feature = "cover")]
+        let status_cover = if configuration.values().status_cover.unwrap_or(false)
+            && ui::cover::status_thumbnail_supported()
+        {
+            Some(ui::cover::StatusCover::new(queue.clone(), &configuration))
+        } else {
+            None
+        };
 
         // initial screen is library
         let initial_screen = configuration
@@ -340,6 +364,10 @@ impl Application {
             slack_last_track_id: None,
             #[cfg(feature = "slack_status")]
             slack_showing: false,
+            #[cfg(feature = "cover")]
+            status_cover,
+            #[cfg(feature = "cover")]
+            pane_visible_cache: std::cell::Cell::new((std::time::Instant::now(), true)),
         })
     }
 
@@ -484,6 +512,9 @@ impl Application {
 
         let queueview = ui::queue::QueueView::new(queue.clone(), library.clone());
 
+        #[cfg(feature = "cover")]
+        let coverview = ui::cover::CoverView::new(queue.clone(), library.clone(), &configuration);
+
         let status = ui::statusbar::StatusBar::new(queue.clone(), Arc::clone(&library));
 
         let mut layout =
@@ -491,6 +522,20 @@ impl Application {
                 .screen("search", search.with_name("search"))
                 .screen("library", libraryview.with_name("library"))
                 .screen("queue", queueview);
+
+        #[cfg(feature = "cover")]
+        layout.add_screen("cover", coverview.with_name("cover"));
+
+        // Optional floating thumbnail near the statusbar, only when enabled and
+        // the terminal supports an overlay image protocol.
+        #[cfg(feature = "cover")]
+        let status_cover = if configuration.values().status_cover.unwrap_or(false)
+            && ui::cover::status_thumbnail_supported()
+        {
+            Some(ui::cover::StatusCover::new(queue.clone(), &configuration))
+        } else {
+            None
+        };
 
         // initial screen is library
         let initial_screen = configuration
@@ -520,6 +565,10 @@ impl Application {
             slack_last_track_id: None,
             #[cfg(feature = "slack_status")]
             slack_showing: false,
+            #[cfg(feature = "cover")]
+            status_cover,
+            #[cfg(feature = "cover")]
+            pane_visible_cache: std::cell::Cell::new((std::time::Instant::now(), true)),
         })
     }
 
@@ -634,6 +683,21 @@ impl Application {
         }
     }
 
+    /// Return whether ncytm's tmux pane is currently visible, caching the
+    /// result briefly to avoid spawning a `tmux` process on every loop tick.
+    #[cfg(feature = "cover")]
+    fn tmux_pane_visible_throttled(&self) -> bool {
+        const TTL: std::time::Duration = std::time::Duration::from_millis(250);
+        let (checked_at, cached) = self.pane_visible_cache.get();
+        if checked_at.elapsed() < TTL {
+            return cached;
+        }
+        let visible = ui::cover::tmux_pane_visible();
+        self.pane_visible_cache
+            .set((std::time::Instant::now(), visible));
+        visible
+    }
+
     /// Start the application and run the event loop.
     pub fn run(&mut self) -> Result<(), String> {
         #[cfg(unix)]
@@ -645,6 +709,36 @@ impl Application {
         // cursive event loop
         while self.cursive.is_running() {
             self.cursive.step();
+
+            // Terminal graphics are drawn to the physical terminal and aren't
+            // tracked by tmux, so hide them whenever our tmux pane isn't the
+            // one on screen. The check spawns a `tmux` process, so throttle it.
+            #[cfg(feature = "cover")]
+            let pane_visible = self.tmux_pane_visible_throttled();
+
+            // Render cover art after the Cursive frame has flushed so the UI
+            // does not overwrite the image.
+            #[cfg(feature = "cover")]
+            self.cursive
+                .call_on_name("cover", |view: &mut ui::cover::CoverView| {
+                    view.set_visible(pane_visible);
+                    view.render_to_terminal();
+                });
+
+            // Render the floating status thumbnail (if enabled). It is
+            // suppressed while the full cover screen is focused so the two
+            // images don't fight over the terminal.
+            #[cfg(feature = "cover")]
+            if let Some(status_cover) = self.status_cover.as_ref() {
+                let cover_focused = self
+                    .cursive
+                    .call_on_name("main", |layout: &mut ui::layout::Layout| {
+                        layout.is_screen_focused("cover")
+                    })
+                    .unwrap_or(false);
+                status_cover.update(cover_focused || !pane_visible);
+                status_cover.render_to_terminal();
+            }
 
             // Process macOS media control events
             #[cfg(all(target_os = "macos", feature = "media_control"))]
@@ -772,6 +866,12 @@ impl Application {
         // The event loop has exited (quit); restore the user's Slack status.
         #[cfg(feature = "slack_status")]
         self.clear_slack_status();
+
+        // Remove any lingering floating thumbnail from the terminal.
+        #[cfg(feature = "cover")]
+        if let Some(status_cover) = self.status_cover.as_ref() {
+            status_cover.clear();
+        }
 
         Ok(())
     }

@@ -141,6 +141,12 @@ impl Layout {
         self.screens.contains_key(id)
     }
 
+    /// Whether the screen with the given `id` is currently focused (top-level).
+    #[cfg(feature = "cover")]
+    pub fn is_screen_focused(&self, id: &str) -> bool {
+        self.focus.as_deref() == Some(id)
+    }
+
     pub fn set_screen<S: Into<String>>(&mut self, id: S) {
         if let Some(view) = self.get_top_view() {
             view.on_leave();
