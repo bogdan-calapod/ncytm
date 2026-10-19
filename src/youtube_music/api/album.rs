@@ -88,7 +88,11 @@ pub async fn get_album(
 /// Parse the album page response.
 fn parse_album_response(response: &Value, browse_id: &str) -> AlbumPage {
     let details = parse_album_header(response, browse_id);
-    let tracks = parse_album_tracks(response);
+    let album_artists = details
+        .as_ref()
+        .map(|d| d.artists.clone())
+        .unwrap_or_default();
+    let tracks = parse_album_tracks(response, &album_artists);
 
     AlbumPage { details, tracks }
 }
@@ -204,6 +208,53 @@ fn parse_album_header(response: &Value, browse_id: &str) -> Option<AlbumDetails>
         })
         .unwrap_or(false);
 
+    // 2024 `musicResponsiveHeaderRenderer` layout: artists live in
+    // `straplineTextOne` and the subtitle only carries type and year.
+    // Older layouts keep the artists in the subtitle, handled above.
+    if artists.is_empty()
+        && let Some(runs) = header
+            .pointer("/straplineTextOne/runs")
+            .and_then(|v| v.as_array())
+    {
+        for run in runs {
+            let text = run.get("text").and_then(|v| v.as_str()).unwrap_or("");
+
+            if text == " • " || text == " · " || text == " & " || text == ", " || text.is_empty()
+            {
+                continue;
+            }
+
+            let browse_id = run
+                .pointer("/navigationEndpoint/browseEndpoint/browseId")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+
+            artists.push(ArtistRef {
+                name: text.to_string(),
+                browse_id,
+            });
+        }
+    }
+
+    // 2024 layout: track count and duration live in `secondSubtitle`
+    // (e.g. "22 songs • 1 hour, 9 minutes").
+    if let Some(runs) = header
+        .pointer("/secondSubtitle/runs")
+        .and_then(|v| v.as_array())
+    {
+        for run in runs {
+            let text = run.get("text").and_then(|v| v.as_str()).unwrap_or("");
+
+            if text.contains("song") {
+                if let Some(num_str) = text.split_whitespace().next() {
+                    track_count = num_str.parse().ok();
+                }
+            } else if text.contains("minute") || text.contains("hour") {
+                duration = Some(text.to_string());
+            }
+        }
+    }
+
     // Get audio playlist ID from menu items
     let audio_playlist_id = response
         .pointer("/header/musicDetailHeaderRenderer/menu/menuRenderer/items")
@@ -254,7 +305,11 @@ fn parse_album_header(response: &Value, browse_id: &str) -> Option<AlbumDetails>
 }
 
 /// Parse tracks from the album response.
-fn parse_album_tracks(response: &Value) -> Vec<AlbumTrack> {
+///
+/// `album_artists` is used as a fallback for tracks whose row has no artist
+/// byline — YouTube Music omits the per-track artist on many albums (the
+/// artist is only shown in the album header).
+fn parse_album_tracks(response: &Value, album_artists: &[ArtistRef]) -> Vec<AlbumTrack> {
     let mut tracks = Vec::new();
 
     // Real YTM WEB_REMIX layout: twoColumnBrowseResultsRenderer → secondaryContents.
@@ -273,7 +328,10 @@ fn parse_album_tracks(response: &Value) -> Vec<AlbumTrack> {
         && let Some(contents) = shelf.get("contents").and_then(|v| v.as_array())
     {
         for (index, item) in contents.iter().enumerate() {
-            if let Some(track) = parse_album_track(item, index as u32 + 1) {
+            if let Some(mut track) = parse_album_track(item, index as u32 + 1) {
+                if track.artists.is_empty() {
+                    track.artists = album_artists.to_vec();
+                }
                 tracks.push(track);
             }
         }
@@ -578,7 +636,7 @@ mod tests {
     #[test]
     fn test_parse_album_tracks() {
         let response = mock_album_response();
-        let tracks = parse_album_tracks(&response);
+        let tracks = parse_album_tracks(&response, &[]);
 
         assert_eq!(tracks.len(), 2);
 
@@ -599,10 +657,195 @@ mod tests {
         assert_eq!(tracks[1].artists.len(), 2);
     }
 
+    /// Response shaped like the 2024 `musicResponsiveHeaderRenderer` layout,
+    /// where the album artist lives in `straplineTextOne`, track count and
+    /// duration in `secondSubtitle`, and track rows omit the artist byline
+    /// entirely (`runs: null`).
+    fn mock_modern_album_response() -> Value {
+        json!({
+            "contents": {
+                "twoColumnBrowseResultsRenderer": {
+                    "tabs": [{
+                        "tabRenderer": {
+                            "content": {
+                                "sectionListRenderer": {
+                                    "contents": [{
+                                        "musicResponsiveHeaderRenderer": {
+                                            "title": { "runs": [{"text": "VILLAINS"}] },
+                                            "subtitle": {
+                                                "runs": [
+                                                    {"text": "Album"},
+                                                    {"text": " • "},
+                                                    {"text": "2019"}
+                                                ]
+                                            },
+                                            "straplineTextOne": {
+                                                "runs": [{
+                                                    "text": "Jonathan Young",
+                                                    "navigationEndpoint": {
+                                                        "browseEndpoint": {
+                                                            "browseId": "UCR-DFuX6gcT4KXJqmOQAULA",
+                                                            "browseEndpointContextSupportedConfigs": {
+                                                                "browseEndpointContextMusicConfig": {
+                                                                    "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }]
+                                            },
+                                            "secondSubtitle": {
+                                                "runs": [
+                                                    {"text": "22 songs"},
+                                                    {"text": " • "},
+                                                    {"text": "1 hour, 9 minutes"}
+                                                ]
+                                            }
+                                        }
+                                    }]
+                                }
+                            }
+                        }
+                    }],
+                    "secondaryContents": {
+                        "sectionListRenderer": {
+                            "contents": [{
+                                "musicShelfRenderer": {
+                                    "contents": [{
+                                        "musicResponsiveListItemRenderer": {
+                                            "overlay": {
+                                                "musicItemThumbnailOverlayRenderer": {
+                                                    "content": {
+                                                        "musicPlayButtonRenderer": {
+                                                            "playNavigationEndpoint": {
+                                                                "watchEndpoint": { "videoId": "-YwtksWAEKs" }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            "flexColumns": [
+                                                {
+                                                    "musicResponsiveListItemFlexColumnRenderer": {
+                                                        "text": { "runs": [{"text": "Poor Unfortunate Souls"}] }
+                                                    }
+                                                },
+                                                {
+                                                    "musicResponsiveListItemFlexColumnRenderer": {
+                                                        "text": { "runs": null }
+                                                    }
+                                                },
+                                                {
+                                                    "musicResponsiveListItemFlexColumnRenderer": {
+                                                        "text": { "runs": [{"text": "122K plays"}] }
+                                                    }
+                                                }
+                                            ],
+                                            "fixedColumns": [{
+                                                "musicResponsiveListItemFixedColumnRenderer": {
+                                                    "text": { "runs": [{"text": "2:56"}] }
+                                                }
+                                            }],
+                                            "playlistItemData": {
+                                                "videoId": "-YwtksWAEKs",
+                                                "playlistSetVideoId": "6D681F3AE3624BD0"
+                                            }
+                                        }
+                                    }]
+                                }
+                            }]
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn test_parse_modern_album_header_artists() {
+        let response = mock_modern_album_response();
+        let details = parse_album_header(&response, "MPREb_nSV1hk9jsXH").unwrap();
+
+        assert_eq!(details.title, "VILLAINS");
+        assert_eq!(details.album_type, Some("Album".to_string()));
+        assert_eq!(details.year, Some("2019".to_string()));
+        assert_eq!(details.track_count, Some(22));
+        assert_eq!(details.duration, Some("1 hour, 9 minutes".to_string()));
+        assert_eq!(details.artists.len(), 1);
+        assert_eq!(details.artists[0].name, "Jonathan Young");
+        assert_eq!(
+            details.artists[0].browse_id.as_deref(),
+            Some("UCR-DFuX6gcT4KXJqmOQAULA")
+        );
+    }
+
+    #[test]
+    fn test_parse_modern_album_tracks_inherit_album_artist() {
+        let response = mock_modern_album_response();
+        let details = parse_album_header(&response, "MPREb_nSV1hk9jsXH").unwrap();
+        let tracks = parse_album_tracks(&response, &details.artists);
+
+        assert_eq!(tracks.len(), 1);
+        let track = &tracks[0];
+        assert_eq!(track.video_id, "-YwtksWAEKs");
+        assert_eq!(track.title, "Poor Unfortunate Souls");
+        assert_eq!(track.duration_seconds, Some(176));
+        // The row has no byline, so it inherits the album artist.
+        assert_eq!(track.artists.len(), 1);
+        assert_eq!(track.artists[0].name, "Jonathan Young");
+        assert_eq!(
+            track.artists[0].browse_id.as_deref(),
+            Some("UCR-DFuX6gcT4KXJqmOQAULA")
+        );
+    }
+
     #[test]
     fn test_parse_duration() {
         assert_eq!(parse_duration("3:30"), Some(210));
         assert_eq!(parse_duration("1:00:00"), Some(3600));
         assert_eq!(parse_duration("invalid"), None);
+    }
+
+    // Integration test for get_album - requires real cookies to run
+    // Run with: cargo test -- test_get_album_integration --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn test_get_album_integration() {
+        use crate::youtube_music::{Cookies, YouTubeMusicClient};
+        use std::path::PathBuf;
+
+        let cookies_path =
+            PathBuf::from(std::env::var("HOME").unwrap()).join(".config/ncytm/cookies.txt");
+
+        if !cookies_path.exists() {
+            eprintln!(
+                "Skipping integration test - no cookies file found at {:?}",
+                cookies_path
+            );
+            return;
+        }
+
+        let cookies = Cookies::from_file(&cookies_path).expect("Failed to load cookies");
+        let client = YouTubeMusicClient::new(cookies).expect("Failed to create client");
+
+        // "VILLAINS" by Jonathan Young: track rows omit the artist byline, so
+        // the artist must come from the header's straplineTextOne.
+        let page = get_album(&client, "MPREb_nSV1hk9jsXH")
+            .await
+            .expect("Failed to fetch album");
+
+        let details = page.details.as_ref().expect("No album details");
+        assert_eq!(details.title, "VILLAINS");
+        assert_eq!(details.artists.len(), 1);
+        assert_eq!(details.artists[0].name, "Jonathan Young");
+
+        let track = page
+            .tracks
+            .iter()
+            .find(|t| t.video_id == "-YwtksWAEKs")
+            .expect("Track not found in album");
+        assert_eq!(track.title, "Poor Unfortunate Souls");
+        assert_eq!(track.artists.len(), 1);
+        assert_eq!(track.artists[0].name, "Jonathan Young");
     }
 }

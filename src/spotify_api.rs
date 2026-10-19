@@ -189,43 +189,36 @@ impl WebApi {
 
     // Content retrieval
     pub fn track(&self, id: &str) -> Option<Track> {
-        // Fetch a single track by video ID using a search query.
-        // YouTube Music has no direct "get video metadata" endpoint accessible
-        // without a session, so we use the player endpoint.
+        // Fetch a single track by video ID via the player endpoint.
+        // Searching by video ID is unreliable: YouTube's search parser treats
+        // IDs starting with `-` as exclusion operators (zero results), and
+        // even normal IDs are rarely returned as exact matches.
         let client = self.get_client()?;
         let rt = tokio::runtime::Runtime::new().ok()?;
-        let result = rt.block_on(async { yt_api::search(client, id).await });
+        let result = rt.block_on(async { yt_api::get_video_metadata(client, id).await });
         match result {
-            Ok(results) => results
-                .tracks
-                .into_iter()
-                .find(|t| t.video_id == id)
-                .map(|t| {
-                    // If search didn't provide duration, fetch it from the player endpoint
-                    let duration = t.duration_seconds.unwrap_or_else(|| {
-                        rt.block_on(async { yt_api::get_video_duration(client, &t.video_id).await })
-                            .unwrap_or(0)
-                    });
-                    Track {
-                        id: Some(t.video_id),
-                        title: t.title,
-                        duration,
-                        artists: t.artists.iter().map(|a| a.name.clone()).collect(),
-                        artist_ids: t
-                            .artists
-                            .iter()
-                            .filter_map(|a| a.browse_id.clone())
-                            .collect(),
-                        album: t.album.as_ref().map(|a| a.title.clone()),
-                        album_id: t.album.and_then(|a| a.browse_id),
-                        cover_url: t.thumbnail_url,
-                        added_at: None,
-                        list_index: 0,
-                        is_explicit: t.is_explicit,
-                        set_video_id: None,
-                    }
-                }),
-            Err(_) => None,
+            Ok(meta) => Some(Track {
+                id: Some(meta.video_id),
+                title: meta.title,
+                duration: meta.length_seconds,
+                artists: if meta.author.is_empty() {
+                    vec![]
+                } else {
+                    vec![meta.author]
+                },
+                artist_ids: meta.channel_id.into_iter().collect(),
+                album: None,
+                album_id: None,
+                cover_url: meta.thumbnail_url,
+                added_at: None,
+                list_index: 0,
+                is_explicit: false,
+                set_video_id: None,
+            }),
+            Err(e) => {
+                debug!("Failed to fetch track metadata for {}: {}", id, e);
+                None
+            }
         }
     }
 

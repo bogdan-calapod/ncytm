@@ -18,7 +18,7 @@ pub use library::{
     LibraryAlbum, LibraryPlaylist, LibraryTrack, get_library_albums, get_library_playlists,
     get_liked_songs,
 };
-pub use player::get_video_duration;
+pub use player::get_video_metadata;
 pub use playlist::{
     PlaylistTrack, add_playlist_tracks, create_playlist, delete_playlist, follow_playlist,
     get_playlist_info, get_playlist_tracks, remove_playlist_tracks, unfollow_playlist,
