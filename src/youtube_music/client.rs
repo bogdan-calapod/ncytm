@@ -183,6 +183,30 @@ impl YouTubeMusicClient {
         Ok(json)
     }
 
+    /// Fetch a raw HTML page from a YouTube front-end URL.
+    ///
+    /// Used for the few things the innertube API does not expose, such as
+    /// resolving a `@handle` to its channel ID.
+    pub async fn get_page(&self, url: &str) -> Result<String, ClientError> {
+        let mut headers = HeaderMap::new();
+        headers.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
+        headers.insert(
+            COOKIE,
+            HeaderValue::from_str(&self.build_cookie_string()).unwrap(),
+        );
+
+        let response = self.http.get(url).headers(headers).send().await?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(ClientError::ApiError {
+                message: format!("HTTP {}: fetching {}", status, url),
+            });
+        }
+
+        Ok(response.text().await?)
+    }
+
     /// Verify that the authentication cookies are valid.
     ///
     /// This makes a request to the account menu endpoint to verify the cookies work.

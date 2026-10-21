@@ -1,11 +1,19 @@
 //! YouTube Music artist API.
 //!
-//! Provides access to artist pages: top tracks, albums, singles, and related artists.
+//! Provides access to artist pages: top tracks, albums, singles, videos, and related artists.
 
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+
+use regex::Regex;
 use serde_json::{Value, json};
 
 use super::library::{AlbumRef, ArtistRef};
 use crate::youtube_music::{ClientError, YouTubeMusicClient};
+
+/// Resolved `@handle` → channel ID pairs, so each handle is fetched at most once.
+static HANDLE_CACHE: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// An artist's details from their page.
 #[derive(Debug, Clone)]
@@ -76,6 +84,24 @@ pub struct RelatedArtist {
     pub subscribers: Option<String>,
 }
 
+/// A video from an artist's page.
+#[derive(Debug, Clone)]
+pub struct ArtistVideo {
+    /// YouTube video ID.
+    pub video_id: String,
+    /// Video title.
+    pub title: String,
+    /// Channel that published the video.
+    pub channel: Option<ArtistRef>,
+    /// View count string (e.g., "19K views").
+    #[allow(dead_code)]
+    pub views: Option<String>,
+    /// Duration in seconds, when the response carries it.
+    pub duration_seconds: Option<u32>,
+    /// Thumbnail URL.
+    pub thumbnail_url: Option<String>,
+}
+
 /// Full artist page response.
 #[derive(Debug, Clone, Default)]
 pub struct ArtistPage {
@@ -87,8 +113,51 @@ pub struct ArtistPage {
     pub albums: Vec<ArtistAlbum>,
     /// Singles.
     pub singles: Vec<ArtistAlbum>,
+    /// Videos.
+    pub videos: Vec<ArtistVideo>,
+    /// Browse ID of the artist's auto-generated "all videos" playlist, when the
+    /// page exposes one. It carries every video, unlike the Videos carousel
+    /// which only shows a preview.
+    pub videos_playlist_id: Option<String>,
     /// Related artists.
     pub related_artists: Vec<RelatedArtist>,
+}
+
+/// Resolve a channel `@handle` (e.g. `@degenerativepixels`) to its `UC...` channel ID.
+///
+/// The innertube `browse` endpoint rejects `@handle` browse IDs on the
+/// `WEB_REMIX` client (HTTP 400) and `resolve_username` is not served for it,
+/// so the handle is resolved by fetching the channel page and reading the
+/// `externalId` field YouTube embeds in it. Results are cached for the
+/// lifetime of the process.
+pub async fn resolve_channel_handle(
+    client: &YouTubeMusicClient,
+    handle: &str,
+) -> Result<String, ClientError> {
+    if let Ok(cache) = HANDLE_CACHE.lock()
+        && let Some(id) = cache.get(handle)
+    {
+        return Ok(id.clone());
+    }
+
+    let url = format!("https://www.youtube.com/{}", handle);
+    let html = client.get_page(&url).await?;
+
+    static EXTERNAL_ID: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#""externalId":"(UC[A-Za-z0-9_-]{22})""#).unwrap());
+
+    let channel_id = EXTERNAL_ID
+        .captures(&html)
+        .map(|caps| caps[1].to_string())
+        .ok_or_else(|| ClientError::ApiError {
+            message: format!("Could not resolve channel handle {}", handle),
+        })?;
+
+    if let Ok(mut cache) = HANDLE_CACHE.lock() {
+        cache.insert(handle.to_string(), channel_id.clone());
+    }
+
+    Ok(channel_id)
 }
 
 /// Get an artist's page with all their content.
@@ -96,21 +165,28 @@ pub struct ArtistPage {
 /// # Arguments
 ///
 /// * `client` - The YouTube Music API client
-/// * `artist_id` - The artist's browse ID (channel ID starting with UC)
+/// * `artist_id` - The artist's browse ID (channel ID starting with UC), or a
+///   channel `@handle`, which is resolved to a channel ID first
 ///
 /// # Returns
 ///
-/// The artist's page with top tracks, albums, singles, and related artists.
+/// The artist's page with top tracks, albums, singles, videos, and related artists.
 pub async fn get_artist(
     client: &YouTubeMusicClient,
     artist_id: &str,
 ) -> Result<ArtistPage, ClientError> {
+    let artist_id = if artist_id.starts_with('@') {
+        resolve_channel_handle(client, artist_id).await?
+    } else {
+        artist_id.to_string()
+    };
+
     let body = json!({
         "browseId": artist_id
     });
 
     let response = client.post("browse", &body).await?;
-    Ok(parse_artist_response(&response, artist_id))
+    Ok(parse_artist_response(&response, &artist_id))
 }
 
 /// Parse the artist page response.
@@ -151,6 +227,14 @@ fn parse_artist_response(response: &Value, artist_id: &str) -> ArtistPage {
                     page.albums = parse_albums(carousel, Some("Album"));
                 } else if title.contains("Singles") || title.contains("singles") {
                     page.singles = parse_albums(carousel, Some("Single"));
+                } else if title.contains("Videos") || title.contains("videos") {
+                    page.videos = parse_videos(carousel);
+                    // The "More" button on music-artist pages points at the
+                    // channel's auto-generated playlist, which holds every video.
+                    page.videos_playlist_id = carousel
+                        .pointer("/header/musicCarouselShelfBasicHeaderRenderer/moreContentButton/buttonRenderer/navigationEndpoint/browseEndpoint/browseId")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
                 } else if title.contains("Fans")
                     || title.contains("like")
                     || title.contains("Similar")
@@ -439,6 +523,87 @@ fn parse_artist_album(item: &Value, default_type: Option<&str>) -> Option<Artist
     })
 }
 
+/// Parse videos from a carousel.
+fn parse_videos(carousel: &Value) -> Vec<ArtistVideo> {
+    let mut videos = Vec::new();
+
+    let contents = carousel.get("contents").and_then(|v| v.as_array());
+
+    if let Some(items) = contents {
+        for item in items {
+            if let Some(video) = parse_artist_video(item) {
+                videos.push(video);
+            }
+        }
+    }
+
+    videos
+}
+
+/// Parse a single video from an artist page carousel.
+fn parse_artist_video(item: &Value) -> Option<ArtistVideo> {
+    let renderer = item.get("musicTwoRowItemRenderer")?;
+
+    // Videos are navigated straight from the item, not via a play overlay.
+    let video_id = renderer
+        .pointer("/navigationEndpoint/watchEndpoint/videoId")
+        .and_then(|v| v.as_str())
+        .map(String::from)?;
+
+    let title = renderer
+        .pointer("/title/runs/0/text")
+        .and_then(|v| v.as_str())
+        .map(String::from)?;
+
+    let thumbnail_url = renderer
+        .pointer("/thumbnailRenderer/musicThumbnailRenderer/thumbnail/thumbnails/0/url")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    // Subtitle: `channel • view count`, sometimes with a duration appended.
+    let mut channel = None;
+    let mut views = None;
+    let mut duration_seconds = None;
+
+    if let Some(runs) = renderer
+        .pointer("/subtitle/runs")
+        .and_then(|v| v.as_array())
+    {
+        for run in runs {
+            let text = run.get("text").and_then(|v| v.as_str()).unwrap_or("");
+
+            if text == " • " || text == " · " || text.is_empty() {
+                continue;
+            }
+
+            let browse_id = run
+                .pointer("/navigationEndpoint/browseEndpoint/browseId")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+
+            if browse_id.as_deref().is_some_and(|id| id.starts_with("UC")) {
+                channel = Some(ArtistRef {
+                    name: text.to_string(),
+                    browse_id,
+                });
+            } else if text.contains("views") || text.contains("likes") || text.contains("plays") {
+                views = Some(text.to_string());
+            } else if text.contains(':') && duration_seconds.is_none() {
+                duration_seconds = parse_duration(text);
+            }
+        }
+    }
+
+    Some(ArtistVideo {
+        video_id,
+        title,
+        channel,
+        views,
+        duration_seconds,
+        thumbnail_url,
+    })
+}
+
 /// Parse related artists from a carousel.
 fn parse_related_artists(carousel: &Value) -> Vec<RelatedArtist> {
     let mut artists = Vec::new();
@@ -683,5 +848,310 @@ mod tests {
         assert_eq!(parse_duration("3:30"), Some(210));
         assert_eq!(parse_duration("1:00:00"), Some(3600));
         assert_eq!(parse_duration("invalid"), None);
+    }
+
+    /// A music-artist page: the Videos carousel carries a "More" button pointing
+    /// at the channel's auto-generated videos playlist.
+    fn mock_artist_videos_response() -> Value {
+        json!({
+            "header": {
+                "musicImmersiveHeaderRenderer": {
+                    "title": { "runs": [{"text": "Jonathan Young"}] }
+                }
+            },
+            "contents": {
+                "singleColumnBrowseResultsRenderer": {
+                    "tabs": [{
+                        "tabRenderer": {
+                            "content": {
+                                "sectionListRenderer": {
+                                    "contents": [{
+                                        "musicCarouselShelfRenderer": {
+                                            "header": {
+                                                "musicCarouselShelfBasicHeaderRenderer": {
+                                                    "title": { "runs": [{"text": "Videos"}] },
+                                                    "moreContentButton": {
+                                                        "buttonRenderer": {
+                                                            "navigationEndpoint": {
+                                                                "browseEndpoint": {
+                                                                    "browseId": "VLOLAK5uy_nxRyKgv0uLHI5Llir4Ci9YJ9zoOHrXESM"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            "contents": [{
+                                                "musicTwoRowItemRenderer": {
+                                                    "navigationEndpoint": {
+                                                        "watchEndpoint": { "videoId": "IopmlQzJUD4" }
+                                                    },
+                                                    "title": { "runs": [{"text": "Running Down to Cuba"}] },
+                                                    "subtitle": {
+                                                        "runs": [
+                                                            {
+                                                                "text": "Jonathan Young",
+                                                                "navigationEndpoint": {
+                                                                    "browseEndpoint": {
+                                                                        "browseId": "UCR-DFuX6gcT4KXJqmOQAULA"
+                                                                    }
+                                                                }
+                                                            },
+                                                            {"text": " • "},
+                                                            {"text": "56K views"}
+                                                        ]
+                                                    },
+                                                    "thumbnailRenderer": {
+                                                        "musicThumbnailRenderer": {
+                                                            "thumbnail": {
+                                                                "thumbnails": [{
+                                                                    "url": "https://i.ytimg.com/vi/IopmlQzJUD4/mqdefault.jpg"
+                                                                }]
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }]
+                                        }
+                                    }]
+                                }
+                            }
+                        }
+                    }]
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn test_parse_artist_videos() {
+        let response = mock_artist_videos_response();
+        let page = parse_artist_response(&response, "UCR-DFuX6gcT4KXJqmOQAULA");
+
+        assert_eq!(page.videos.len(), 1);
+        let video = &page.videos[0];
+        assert_eq!(video.video_id, "IopmlQzJUD4");
+        assert_eq!(video.title, "Running Down to Cuba");
+        assert_eq!(video.views.as_deref(), Some("56K views"));
+        assert_eq!(video.duration_seconds, None);
+        assert!(video.thumbnail_url.is_some());
+
+        let channel = video.channel.as_ref().unwrap();
+        assert_eq!(channel.name, "Jonathan Young");
+        assert_eq!(
+            channel.browse_id.as_deref(),
+            Some("UCR-DFuX6gcT4KXJqmOQAULA")
+        );
+
+        // The "More" button is what makes every video reachable, not just the
+        // carousel preview.
+        assert_eq!(
+            page.videos_playlist_id.as_deref(),
+            Some("VLOLAK5uy_nxRyKgv0uLHI5Llir4Ci9YJ9zoOHrXESM")
+        );
+    }
+
+    #[test]
+    fn test_parse_artist_videos_without_more_button() {
+        // Regular YouTube channels get a Videos carousel with no "More" button,
+        // so there is no full playlist to fall back to.
+        let mut response = mock_artist_videos_response();
+        response
+            .pointer_mut(
+                "/contents/singleColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicCarouselShelfRenderer/header/musicCarouselShelfBasicHeaderRenderer",
+            )
+            .expect("header")
+            .as_object_mut()
+            .expect("header object")
+            .remove("moreContentButton");
+
+        let page = parse_artist_response(&response, "UCUtOwdq47Km76XXIwNK7CWQ");
+
+        assert_eq!(page.videos.len(), 1);
+        assert_eq!(page.videos[0].video_id, "IopmlQzJUD4");
+        assert!(page.videos_playlist_id.is_none());
+    }
+
+    /// A non-music channel page: `musicVisualHeaderRenderer` header and a
+    /// Videos carousel as the only content section.
+    fn mock_channel_videos_response() -> Value {
+        json!({
+            "header": {
+                "musicVisualHeaderRenderer": {
+                    "title": { "runs": [{"text": "Degenerative Pixels"}] },
+                    "thumbnail": {
+                        "musicThumbnailRenderer": {
+                            "thumbnail": {
+                                "thumbnails": [{"url": "https://example.com/channel.jpg"}]
+                            }
+                        }
+                    },
+                    "subscriptionButton": {
+                        "subscribeButtonRenderer": {
+                            "subscriberCountText": { "runs": [{"text": "9.1K"}] }
+                        }
+                    }
+                }
+            },
+            "contents": {
+                "singleColumnBrowseResultsRenderer": {
+                    "tabs": [{
+                        "tabRenderer": {
+                            "content": {
+                                "sectionListRenderer": {
+                                    "contents": [{
+                                        "musicCarouselShelfRenderer": {
+                                            "header": {
+                                                "musicCarouselShelfBasicHeaderRenderer": {
+                                                    "title": { "runs": [{"text": "Videos"}] }
+                                                }
+                                            },
+                                            "contents": [{
+                                                "musicTwoRowItemRenderer": {
+                                                    "navigationEndpoint": {
+                                                        "watchEndpoint": { "videoId": "zONGVaONKe8" }
+                                                    },
+                                                    "title": { "runs": [{"text": "No One Needs Us Anymore"}] },
+                                                    "subtitle": {
+                                                        "runs": [
+                                                            {
+                                                                "text": "Degenerative Pixels",
+                                                                "navigationEndpoint": {
+                                                                    "browseEndpoint": {
+                                                                        "browseId": "UCUtOwdq47Km76XXIwNK7CWQ"
+                                                                    }
+                                                                }
+                                                            },
+                                                            {"text": " • "},
+                                                            {"text": "19K views"}
+                                                        ]
+                                                    },
+                                                    "thumbnailRenderer": {
+                                                        "musicThumbnailRenderer": {
+                                                            "thumbnail": {
+                                                                "thumbnails": [{
+                                                                    "url": "https://i.ytimg.com/vi/zONGVaONKe8/mqdefault.jpg"
+                                                                }]
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }]
+                                        }
+                                    }]
+                                }
+                            }
+                        }
+                    }]
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn test_parse_channel_page_videos() {
+        let response = mock_channel_videos_response();
+        let page = parse_artist_response(&response, "UCUtOwdq47Km76XXIwNK7CWQ");
+
+        // The visual header (used by non-music channels) still yields details.
+        let details = page.details.as_ref().unwrap();
+        assert_eq!(details.name, "Degenerative Pixels");
+        assert_eq!(details.subscribers.as_deref(), Some("9.1K"));
+
+        assert_eq!(page.videos.len(), 1);
+        assert_eq!(page.videos[0].video_id, "zONGVaONKe8");
+        assert_eq!(page.videos[0].title, "No One Needs Us Anymore");
+        assert_eq!(
+            page.videos[0]
+                .channel
+                .as_ref()
+                .unwrap()
+                .browse_id
+                .as_deref(),
+            Some("UCUtOwdq47Km76XXIwNK7CWQ")
+        );
+        assert!(page.videos_playlist_id.is_none());
+    }
+
+    // Integration tests - require real cookies to run.
+    // Run with: cargo test -- --ignored test_get_artist
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_resolve_channel_handle_integration() {
+        use crate::youtube_music::Cookies;
+        use std::path::PathBuf;
+
+        let cookies_path =
+            PathBuf::from(std::env::var("HOME").unwrap()).join(".config/ncytm/cookies.txt");
+        if !cookies_path.exists() {
+            eprintln!("Skipping - no cookies file at {:?}", cookies_path);
+            return;
+        }
+
+        let cookies = Cookies::from_file(&cookies_path).expect("Failed to load cookies");
+        let client = YouTubeMusicClient::new(cookies).expect("Failed to create client");
+
+        let id = resolve_channel_handle(&client, "@degenerativepixels")
+            .await
+            .expect("Failed to resolve handle");
+        assert_eq!(id, "UCUtOwdq47Km76XXIwNK7CWQ");
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_get_artist_videos_integration() {
+        use crate::youtube_music::Cookies;
+        use std::path::PathBuf;
+
+        let cookies_path =
+            PathBuf::from(std::env::var("HOME").unwrap()).join(".config/ncytm/cookies.txt");
+        if !cookies_path.exists() {
+            eprintln!("Skipping - no cookies file at {:?}", cookies_path);
+            return;
+        }
+
+        let cookies = Cookies::from_file(&cookies_path).expect("Failed to load cookies");
+        let client = YouTubeMusicClient::new(cookies).expect("Failed to create client");
+
+        // A regular YouTube channel, opened via @handle.
+        let page = get_artist(&client, "@degenerativepixels")
+            .await
+            .expect("Failed to fetch channel by handle");
+        assert_eq!(page.details.as_ref().unwrap().name, "Degenerative Pixels");
+        assert!(!page.videos.is_empty(), "channel should expose videos");
+        assert_eq!(
+            page.videos[0]
+                .channel
+                .as_ref()
+                .unwrap()
+                .browse_id
+                .as_deref(),
+            Some("UCUtOwdq47Km76XXIwNK7CWQ")
+        );
+
+        // A music artist exposes the auto-generated videos playlist as well.
+        let page = get_artist(&client, "UCR-DFuX6gcT4KXJqmOQAULA")
+            .await
+            .expect("Failed to fetch music artist");
+        assert!(!page.videos.is_empty(), "artist should expose videos");
+        let playlist_id = page
+            .videos_playlist_id
+            .as_deref()
+            .expect("music artist should have a videos playlist");
+        assert!(playlist_id.starts_with("VLOLAK5uy_"), "{}", playlist_id);
+
+        // The playlist holds every video, not just the carousel preview. (It
+        // only paginates once a channel has more videos than one page of 100.)
+        let first_page = super::super::playlist::get_playlist_tracks(&client, playlist_id, None)
+            .await
+            .expect("Failed to fetch videos playlist");
+        assert!(!first_page.tracks.is_empty());
+        assert!(
+            first_page.tracks.len() > page.videos.len(),
+            "playlist page ({}) should hold more than the carousel preview ({})",
+            first_page.tracks.len(),
+            page.videos.len()
+        );
     }
 }

@@ -390,6 +390,46 @@ impl WebApi {
         }
     }
 
+    /// Fetch the artist's videos as playable tracks.
+    ///
+    /// Music artists expose an auto-generated playlist containing every video;
+    /// that is preferred because the Videos carousel on the page only carries a
+    /// preview. Other channels (e.g. regular YouTube channels without a music
+    /// presence) only get the carousel contents.
+    pub fn artist_videos(&self, id: &str) -> Vec<Track> {
+        let Some(client) = self.get_client() else {
+            return Vec::new();
+        };
+
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(_) => return Vec::new(),
+        };
+
+        let page = match rt.block_on(async { yt_api::get_artist(client, id).await }) {
+            Ok(page) => page,
+            Err(_) => return Vec::new(),
+        };
+
+        if let Some(ref playlist_id) = page.videos_playlist_id
+            && let Some(videos) = self.playlist_tracks(playlist_id, 0, 0)
+        {
+            let tracks: Vec<Track> = videos
+                .items
+                .into_iter()
+                .map(|playable| match playable {
+                    Playable::Track(track) => track,
+                })
+                .collect();
+
+            if !tracks.is_empty() {
+                return tracks;
+            }
+        }
+
+        page.videos.into_iter().map(artist_video_to_track).collect()
+    }
+
     pub fn playlist(&self, id: &str) -> Option<Playlist> {
         let client = self.get_client()?;
         let rt = tokio::runtime::Runtime::new().ok()?;
@@ -747,6 +787,32 @@ fn artist_track_to_track(track: yt_api::ArtistTrack) -> Track {
     }
 }
 
+/// Convert an ArtistVideo from the API to a Track model.
+fn artist_video_to_track(video: yt_api::ArtistVideo) -> Track {
+    Track {
+        id: Some(video.video_id),
+        title: video.title,
+        duration: video.duration_seconds.unwrap_or(0),
+        artists: video
+            .channel
+            .iter()
+            .map(|channel| channel.name.clone())
+            .collect(),
+        artist_ids: video
+            .channel
+            .iter()
+            .filter_map(|channel| channel.browse_id.clone())
+            .collect(),
+        album: None,
+        album_id: None,
+        cover_url: video.thumbnail_url,
+        added_at: None,
+        list_index: 0,
+        is_explicit: false,
+        set_video_id: None,
+    }
+}
+
 /// Convert an ArtistAlbum from the API to an Album model.
 fn artist_album_to_album(
     album: yt_api::ArtistAlbum,
@@ -770,5 +836,61 @@ fn artist_album_to_album(
         added_at: None,
         audio_playlist_id: None,
         is_explicit: album.is_explicit,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Integration test for artist_videos - requires real cookies to run.
+    // Run with: cargo test -- --ignored test_artist_videos_integration
+    #[test]
+    #[ignore]
+    fn test_artist_videos_integration() {
+        use crate::youtube_music::Cookies;
+        use std::path::PathBuf;
+
+        let cookies_path =
+            PathBuf::from(std::env::var("HOME").unwrap()).join(".config/ncytm/cookies.txt");
+        if !cookies_path.exists() {
+            eprintln!("Skipping - no cookies file at {:?}", cookies_path);
+            return;
+        }
+
+        let mut api = super::WebApi::new();
+        let cookies = Cookies::from_file(&cookies_path).expect("Failed to load cookies");
+        api.init_from_cookies(cookies)
+            .expect("Failed to init client");
+
+        // A regular YouTube channel, opened via @handle. It has no music
+        // presence, so the videos come from the artist page carousel.
+        let videos = api.artist_videos("@degenerativepixels");
+        assert!(!videos.is_empty(), "channel should have videos");
+        assert_eq!(videos[0].artists, vec!["Degenerative Pixels"]);
+        assert!(
+            videos.iter().all(|v| v.id.is_some()),
+            "every video needs an ID to be playable"
+        );
+        println!(
+            "channel videos: {:?}",
+            videos.iter().take(3).map(|v| &v.title).collect::<Vec<_>>()
+        );
+
+        // A music artist has the auto-generated videos playlist, so the full
+        // list comes back instead of the carousel preview.
+        let videos = api.artist_videos("UCR-DFuX6gcT4KXJqmOQAULA");
+        assert!(
+            videos.len() > 10,
+            "expected the full video list, got {}",
+            videos.len()
+        );
+        assert!(
+            videos.iter().all(|v| v.id.is_some()),
+            "every video needs an ID to be playable"
+        );
+        assert!(
+            videos.iter().all(|v| !v.artists.is_empty()),
+            "videos should carry their artist"
+        );
+        println!("music artist videos: {}", videos.len());
     }
 }

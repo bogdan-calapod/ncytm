@@ -12,7 +12,7 @@ pub mod radio;
 pub mod search;
 
 pub use album::{AlbumDetails, AlbumTrack, get_album};
-pub use artist::{ArtistAlbum, ArtistDetails, ArtistTrack, get_artist};
+pub use artist::{ArtistAlbum, ArtistDetails, ArtistTrack, ArtistVideo, get_artist};
 pub use browse::{get_categories, get_category_playlists};
 pub use library::{
     LibraryAlbum, LibraryPlaylist, LibraryTrack, get_library_albums, get_library_playlists,

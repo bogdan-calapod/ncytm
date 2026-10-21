@@ -51,6 +51,21 @@ impl ArtistView {
             });
         }
 
+        let videos: Arc<RwLock<Vec<Track>>> = Arc::new(RwLock::new(Vec::new()));
+        {
+            let videos = videos.clone();
+            let spotify = spotify.clone();
+            let id = artist.id.clone();
+            let library = library.clone();
+            thread::spawn(move || {
+                if let Some(id) = id {
+                    let tracks = spotify.api.artist_videos(&id);
+                    videos.write().unwrap().extend(tracks);
+                    library.trigger_redraw();
+                }
+            });
+        }
+
         let related: Arc<RwLock<Vec<Artist>>> = Arc::new(RwLock::new(Vec::new()));
         {
             let related = related.clone();
@@ -85,6 +100,10 @@ impl ArtistView {
         );
         tabs.add_tab("Albums", albums_view);
         tabs.add_tab("Singles", singles_view);
+        tabs.add_tab(
+            "Videos",
+            ListView::new(videos, queue.clone(), library.clone()),
+        );
         tabs.add_tab("Related Artists", ListView::new(related, queue, library));
 
         Self {

@@ -23,6 +23,7 @@ use crate::youtube_url::YouTubeUrl;
 pub struct SearchResultsView {
     search_term: String,
     results_tracks: Arc<RwLock<Vec<Track>>>,
+    results_videos: Arc<RwLock<Vec<Track>>>,
     results_albums: Arc<RwLock<Vec<Album>>>,
     results_artists: Arc<RwLock<Vec<Artist>>>,
     results_playlists: Arc<RwLock<Vec<Playlist>>>,
@@ -43,11 +44,13 @@ impl SearchResultsView {
         library: Arc<Library>,
     ) -> Self {
         let results_tracks = Arc::new(RwLock::new(Vec::new()));
+        let results_videos = Arc::new(RwLock::new(Vec::new()));
         let results_albums = Arc::new(RwLock::new(Vec::new()));
         let results_artists = Arc::new(RwLock::new(Vec::new()));
         let results_playlists = Arc::new(RwLock::new(Vec::new()));
 
         let list_tracks = ListView::new(results_tracks.clone(), queue.clone(), library.clone());
+        let list_videos = ListView::new(results_videos.clone(), queue.clone(), library.clone());
         let list_albums = ListView::new(results_albums.clone(), queue.clone(), library.clone());
         let list_artists = ListView::new(results_artists.clone(), queue.clone(), library.clone());
         let list_playlists =
@@ -57,11 +60,13 @@ impl SearchResultsView {
         tabs.add_tab("Tracks", list_tracks);
         tabs.add_tab("Albums", list_albums);
         tabs.add_tab("Artists", list_artists);
+        tabs.add_tab("Videos", list_videos);
         tabs.add_tab("Playlists", list_playlists);
 
         let mut view = Self {
             search_term,
             results_tracks,
+            results_videos,
             results_albums,
             results_artists,
             results_playlists,
@@ -220,7 +225,7 @@ impl SearchResultsView {
                         &query,
                         None,
                     );
-                    self.tabs.set_selected(3);
+                    self.tabs.set_selected(4);
                 }
                 // Shows and Episodes not supported in YouTube Music
                 UriType::Show | UriType::Episode => {}
@@ -263,7 +268,7 @@ impl SearchResultsView {
                         &url.id,
                         None,
                     );
-                    self.tabs.set_selected(3);
+                    self.tabs.set_selected(4);
                 }
                 // Shows and Episodes not supported in YouTube Music
                 UriType::Show | UriType::Episode => {}
@@ -279,6 +284,7 @@ impl SearchResultsView {
         let library = self.library.clone();
         let query = query.to_owned();
         let results_tracks = self.results_tracks.clone();
+        let results_videos = self.results_videos.clone();
         let results_albums = self.results_albums.clone();
         let results_artists = self.results_artists.clone();
         let results_playlists = self.results_playlists.clone();
@@ -296,6 +302,17 @@ impl SearchResultsView {
                     .map(|(i, t)| Library::search_track_to_track(t, i))
                     .collect();
                 *results_tracks.write().unwrap() = tracks;
+            }
+
+            // Convert and store videos
+            {
+                let videos: Vec<Track> = search_results
+                    .videos
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| Library::search_track_to_track(v, i))
+                    .collect();
+                *results_videos.write().unwrap() = videos;
             }
 
             // Convert and store albums

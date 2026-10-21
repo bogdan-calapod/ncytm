@@ -48,6 +48,7 @@ impl YouTubeUrl {
     /// - `https://music.youtube.com/browse/VLPL...` - Playlist (browse IDs starting with VLPL)
     /// - `https://music.youtube.com/channel/CHANNEL_ID` - Artist
     /// - `https://www.youtube.com/watch?v=VIDEO_ID` - Track (regular YouTube)
+    /// - `https://www.youtube.com/@handle` - Artist (channel handle, resolved later)
     /// - `https://youtu.be/VIDEO_ID` - Track (short URL)
     pub fn from_url<S: AsRef<str>>(s: S) -> Option<Self> {
         let url = Url::parse(s.as_ref()).ok()?;
@@ -109,7 +110,28 @@ impl YouTubeUrl {
             return Some(Self::new(channel_id, UriType::Artist));
         }
 
+        // Handle page: /@handle (and /@handle/videos, ...)
+        if let Some(parsed) = Self::parse_handle_path(path) {
+            return Some(parsed);
+        }
+
         None
+    }
+
+    /// Parse a channel handle path such as `/@name` or `/@name/videos`.
+    ///
+    /// YouTube channels are commonly linked by handle rather than by
+    /// `UC...` channel ID; the handle is resolved to a channel ID later,
+    /// when the artist is fetched.
+    fn parse_handle_path(path: &str) -> Option<Self> {
+        let rest = path.strip_prefix('/')?;
+        let handle = rest.strip_prefix('@')?;
+        // Drop any trailing section (e.g. `/@name/videos`, `/@name/shorts`).
+        let handle = handle.split('/').next().unwrap_or(handle);
+        if handle.is_empty() {
+            return None;
+        }
+        Some(Self::new(&format!("@{handle}"), UriType::Artist))
     }
 
     /// Parse a www.youtube.com URL.
@@ -138,6 +160,11 @@ impl YouTubeUrl {
         if path.starts_with("/channel/") {
             let channel_id = path.strip_prefix("/channel/")?;
             return Some(Self::new(channel_id, UriType::Artist));
+        }
+
+        // Handle page: /@handle (and /@handle/videos, ...)
+        if let Some(parsed) = Self::parse_handle_path(path) {
+            return Some(parsed);
         }
 
         None
@@ -221,6 +248,33 @@ mod tests {
     fn test_parse_invalid_url() {
         assert!(YouTubeUrl::from_url("https://example.com/watch?v=abc").is_none());
         assert!(YouTubeUrl::from_url("not a url").is_none());
+    }
+
+    #[test]
+    fn test_parse_youtube_handle() {
+        let url = YouTubeUrl::from_url("https://www.youtube.com/@degenerativepixels").unwrap();
+        assert_eq!(url.id, "@degenerativepixels");
+        assert_eq!(url.uri_type, UriType::Artist);
+    }
+
+    #[test]
+    fn test_parse_youtube_handle_with_section() {
+        let url = YouTubeUrl::from_url("https://youtube.com/@degenerativepixels/videos").unwrap();
+        assert_eq!(url.id, "@degenerativepixels");
+        assert_eq!(url.uri_type, UriType::Artist);
+    }
+
+    #[test]
+    fn test_parse_music_youtube_handle() {
+        let url = YouTubeUrl::from_url("https://music.youtube.com/@SomeHandle").unwrap();
+        assert_eq!(url.id, "@SomeHandle");
+        assert_eq!(url.uri_type, UriType::Artist);
+    }
+
+    #[test]
+    fn test_parse_empty_handle() {
+        assert!(YouTubeUrl::from_url("https://www.youtube.com/@").is_none());
+        assert!(YouTubeUrl::from_url("https://www.youtube.com/").is_none());
     }
 
     #[test]

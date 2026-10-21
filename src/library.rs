@@ -866,9 +866,10 @@ impl Library {
             match runtime.block_on(search(client, query)) {
                 Ok(results) => {
                     info!(
-                        "Search results for '{}': {} tracks, {} albums, {} artists, {} playlists",
+                        "Search results for '{}': {} tracks, {} videos, {} albums, {} artists, {} playlists",
                         query,
                         results.tracks.len(),
+                        results.videos.len(),
                         results.albums.len(),
                         results.artists.len(),
                         results.playlists.len()

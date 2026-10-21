@@ -80,6 +80,8 @@ pub struct SearchPlaylist {
 pub struct SearchResults {
     /// Tracks found.
     pub tracks: Vec<SearchTrack>,
+    /// Videos found.
+    pub videos: Vec<SearchTrack>,
     /// Albums found.
     pub albums: Vec<SearchAlbum>,
     /// Artists found.
@@ -90,11 +92,12 @@ pub struct SearchResults {
 
 /// Search filter parameter values for YouTube Music.
 const FILTER_SONGS: &str = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D";
+const FILTER_VIDEOS: &str = "EgWKAQIQAWoKEAkQBRAKEAMQBA%3D%3D";
 const FILTER_ALBUMS: &str = "EgWKAQIYAWoKEAkQBRAKEAMQBA%3D%3D";
 const FILTER_ARTISTS: &str = "EgWKAQIgAWoKEAkQBRAKEAMQBA%3D%3D";
 const FILTER_PLAYLISTS: &str = "EgeKAQQoAEABagoQCRAFEAoQAxAE";
 
-/// Search YouTube Music for tracks, albums, artists, and playlists.
+/// Search YouTube Music for tracks, videos, albums, artists, and playlists.
 ///
 /// # Arguments
 ///
@@ -103,14 +106,15 @@ const FILTER_PLAYLISTS: &str = "EgeKAQQoAEABagoQCRAFEAoQAxAE";
 ///
 /// # Returns
 ///
-/// Combined search results containing tracks, albums, artists, and playlists.
+/// Combined search results containing tracks, videos, albums, artists, and playlists.
 pub async fn search(
     client: &YouTubeMusicClient,
     query: &str,
 ) -> Result<SearchResults, ClientError> {
     // Run all searches in parallel
-    let (tracks_result, albums_result, artists_result, playlists_result) = tokio::join!(
+    let (tracks_result, videos_result, albums_result, artists_result, playlists_result) = tokio::join!(
         search_tracks(client, query),
+        search_videos(client, query),
         search_albums(client, query),
         search_artists(client, query),
         search_playlists(client, query),
@@ -118,6 +122,7 @@ pub async fn search(
 
     Ok(SearchResults {
         tracks: tracks_result.unwrap_or_default(),
+        videos: videos_result.unwrap_or_default(),
         albums: albums_result.unwrap_or_default(),
         artists: artists_result.unwrap_or_default(),
         playlists: playlists_result.unwrap_or_default(),
@@ -132,6 +137,23 @@ pub async fn search_tracks(
     let body = json!({
         "query": query,
         "params": FILTER_SONGS
+    });
+
+    let response = client.post("search", &body).await?;
+    Ok(parse_track_results(&response))
+}
+
+/// Search for videos only.
+///
+/// Videos are returned as [`SearchTrack`]s: they are plain video IDs, which is
+/// how this app plays and displays them everywhere else.
+pub async fn search_videos(
+    client: &YouTubeMusicClient,
+    query: &str,
+) -> Result<Vec<SearchTrack>, ClientError> {
+    let body = json!({
+        "query": query,
+        "params": FILTER_VIDEOS
     });
 
     let response = client.post("search", &body).await?;
@@ -305,6 +327,13 @@ fn parse_search_track(item: &Value) -> Option<SearchTrack> {
 
             // Skip separators
             if text == " • " || text == " & " || text == ", " || text == " · " {
+                continue;
+            }
+
+            // Skip engagement counts. Video rows put them in the same column as
+            // the channel name ("Degenerative Pixels • 1.2M views • 5:06") and
+            // they must not be mistaken for artists.
+            if text.contains("views") || text.contains("likes") || text.contains("plays") {
                 continue;
             }
 
@@ -719,5 +748,148 @@ mod tests {
         let empty_response = json!({});
         let tracks = parse_track_results(&empty_response);
         assert!(tracks.is_empty());
+    }
+
+    /// A "Videos" filter result: the second column mixes channel, view count and
+    /// duration, and has no fixedColumns duration.
+    fn mock_video_search_response() -> Value {
+        json!({
+            "contents": {
+                "tabbedSearchResultsRenderer": {
+                    "tabs": [{
+                        "tabRenderer": {
+                            "content": {
+                                "sectionListRenderer": {
+                                    "contents": [{
+                                        "musicShelfRenderer": {
+                                            "contents": [{
+                                                "musicResponsiveListItemRenderer": {
+                                                    "overlay": {
+                                                        "musicItemThumbnailOverlayRenderer": {
+                                                            "content": {
+                                                                "musicPlayButtonRenderer": {
+                                                                    "playNavigationEndpoint": {
+                                                                        "watchEndpoint": {
+                                                                            "videoId": "3TNpOD6bov8"
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    "flexColumns": [
+                                                        {
+                                                            "musicResponsiveListItemFlexColumnRenderer": {
+                                                                "text": {
+                                                                    "runs": [{"text": "LGTM (Looks Good to Me) - Claude Opus 5.5 music video"}]
+                                                                }
+                                                            }
+                                                        },
+                                                        {
+                                                            "musicResponsiveListItemFlexColumnRenderer": {
+                                                                "text": {
+                                                                    "runs": [
+                                                                        {
+                                                                            "text": "Degenerative Pixels",
+                                                                            "navigationEndpoint": {
+                                                                                "browseEndpoint": {
+                                                                                    "browseId": "UCUtOwdq47Km76XXIwNK7CWQ"
+                                                                                }
+                                                                            }
+                                                                        },
+                                                                        {"text": " • "},
+                                                                        {"text": "1.2M views"},
+                                                                        {"text": " • "},
+                                                                        {"text": "5:06"}
+                                                                    ]
+                                                                }
+                                                            }
+                                                        }
+                                                    ],
+                                                    "thumbnail": {
+                                                        "musicThumbnailRenderer": {
+                                                            "thumbnail": {
+                                                                "thumbnails": [{
+                                                                    "url": "https://i.ytimg.com/vi/3TNpOD6bov8/mqdefault.jpg"
+                                                                }]
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }]
+                                        }
+                                    }]
+                                }
+                            }
+                        }
+                    }]
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn test_parse_video_search_results() {
+        let response = mock_video_search_response();
+        let videos = parse_track_results(&response);
+
+        assert_eq!(videos.len(), 1);
+        let video = &videos[0];
+        assert_eq!(video.video_id, "3TNpOD6bov8");
+        assert_eq!(
+            video.title,
+            "LGTM (Looks Good to Me) - Claude Opus 5.5 music video"
+        );
+
+        // The channel is the only artist - the view count must not be mistaken
+        // for one.
+        assert_eq!(video.artists.len(), 1);
+        assert_eq!(video.artists[0].name, "Degenerative Pixels");
+        assert_eq!(
+            video.artists[0].browse_id.as_deref(),
+            Some("UCUtOwdq47Km76XXIwNK7CWQ")
+        );
+
+        // Duration comes from the second column, since videos have no fixedColumns.
+        assert_eq!(video.duration_seconds, Some(306)); // 5:06
+        assert!(video.thumbnail_url.is_some());
+    }
+
+    // Integration test for search_videos - requires real cookies to run.
+    // Run with: cargo test -- --ignored test_search_videos_integration
+    #[tokio::test]
+    #[ignore]
+    async fn test_search_videos_integration() {
+        use crate::youtube_music::Cookies;
+        use std::path::PathBuf;
+
+        let cookies_path =
+            PathBuf::from(std::env::var("HOME").unwrap()).join(".config/ncytm/cookies.txt");
+        if !cookies_path.exists() {
+            eprintln!("Skipping - no cookies file at {:?}", cookies_path);
+            return;
+        }
+
+        let cookies = Cookies::from_file(&cookies_path).expect("Failed to load cookies");
+        let client = YouTubeMusicClient::new(cookies).expect("Failed to create client");
+
+        let videos = search_videos(&client, "degenerative pixels")
+            .await
+            .expect("video search failed");
+
+        assert!(!videos.is_empty(), "video search should return results");
+        for video in &videos {
+            assert!(!video.title.is_empty());
+            // View/like counts must never leak into the artist list.
+            assert!(
+                video
+                    .artists
+                    .iter()
+                    .all(|a| { !a.name.contains("views") && !a.name.contains("likes") }),
+                "unexpected artist on {:?}: {:?}",
+                video.title,
+                video.artists
+            );
+        }
     }
 }
